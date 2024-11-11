@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "sparse": "cpp",
+        "*.ipp": "cpp"
+    }
+}

@@ -19,14 +19,18 @@ igl_include(glfw)
 #igl_include(copyleft comiso)
 #igl_include(copyleft core)
 #igl_include(copyleft cork)
-#igl_include(copyleft tetgen)
+igl_include(copyleft tetgen)
 #igl_include(restricted matlab)
 #igl_include(restricted mosek)
 #igl_include(restricted triangle)
 
+add_subdirectory(deps/polyscope)
+
 # Add your project files
 file(GLOB SRC_FILES *.cpp)
 add_executable(${PROJECT_NAME} ${SRC_FILES})
+
+target_include_directories(${PROJECT_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/deps/polyscope/deps/args")
 
 # Link igl (and the glfw module) to your project
 target_link_libraries(${PROJECT_NAME} PUBLIC 
@@ -42,8 +46,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   # igl_copyleft::comiso
   # igl_copyleft::core
   # igl_copyleft::cork
-  # igl_copyleft::tetgen
+  igl_copyleft::tetgen
   # igl_restricted::matlab
   # igl_restricted::mosek
   # igl_restricted::triangle
+  polyscope
   )
