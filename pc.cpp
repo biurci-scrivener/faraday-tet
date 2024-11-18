@@ -28,13 +28,43 @@ template <typename T> std::vector<T> reorder_vector(const std::vector<T> &vals, 
     return vals_new;
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, Eigen::VectorXi, std::vector<std::vector<int>>, Eigen::MatrixXd> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
+std::tuple<Eigen::VectorXi, Eigen::VectorXi> findBdryCage(struct Faraday &f) {
 
-    /*
-        preappend boundary and cage points.
-        final order should be 
-            boundary, cage, interior
-    */ 
+    Eigen::VectorXi is_bdry_tv = Eigen::VectorXi::Zero(f.TV.rows());
+    Eigen::VectorXi is_cage_tv = Eigen::VectorXi::Zero(f.TV.rows());
+
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        if ((i < f.is_cage_point.rows()) && (i > 7)) {
+            is_cage_tv[i] = f.is_cage_point(i);
+        } else if ( (f.TV(i,0) == f.bb(0,0) || f.TV(i,0) == f.bb(1,0)) ||
+                    (f.TV(i,1) == f.bb(0,1) || f.TV(i,1) == f.bb(1,1)) ||
+                    (f.TV(i,2) == f.bb(0,2) || f.TV(i,2) == f.bb(1,2))
+                    ) {
+            is_bdry_tv[i] = true;
+        }
+    }
+
+    return std::make_tuple(is_bdry_tv, is_cage_tv);
+
+}
+
+std::vector<std::vector<int>> findTets(struct Faraday &f) {
+
+    std::vector<std::vector<int>> my_tets(f.TV.rows(), std::vector<int>());
+
+    for (size_t i = 0; i < f.TT.rows(); i++) {
+        for (int vtx: f.TT.row(i)) {
+            my_tets[vtx].push_back(i);
+        }
+    }
+
+    return my_tets;
+
+}
+
+std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, std::vector<std::vector<int>>, Eigen::MatrixXd, Eigen::MatrixXi> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
+
+    // pre-append corners of bounding box
 
     Eigen::MatrixXd BV;
     Eigen::MatrixXi BF;
@@ -46,15 +76,13 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, Eigen::VectorXi, s
     Eigen::Vector3d bb_max = BV.row(0);
     Eigen::Vector3d bb_min = BV.row(7);
 
-    Eigen::Vector3d pad = bb_max - bb_min * PADDING;
-    pad = pad.cwiseAbs();
-    Eigen::Vector3d delta = {   (bb_max[0] + pad[0]) - (bb_min[0] - pad[0]),
-                                (bb_max[1] + pad[1]) - (bb_min[1] - pad[1]),
-                                (bb_max[2] + pad[2]) - (bb_min[2] - pad[2])};
+    double pad = (bb_max - bb_min).cwiseAbs().minCoeff() * PADDING;
+
+    igl::bounding_box(P, pad, BV, BF);
     
     Eigen::MatrixXd bb(2,3);
-    bb.row(0) << (bb_min[0] - pad[0]), (bb_min[1] - pad[1]), (bb_min[2] - pad[2]);
-    bb.row(1) << (bb_max[0] + pad[0]), (bb_max[1] + pad[1]), (bb_max[2] + pad[2]);
+    bb.row(0) << BV.row(0);
+    bb.row(1) << BV.row(7);
 
     int START_BDRY = 0;
 
@@ -63,106 +91,106 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, Eigen::VectorXi, s
     // ADD BOUNDARY POINTS
 
         // corners
-        add_rows.push_back({ bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] });
-        add_rows.push_back({ bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] });
-        add_rows.push_back({ bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] });
-        add_rows.push_back({ bb_min[0] - pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] });
-        add_rows.push_back({ bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] });
-        add_rows.push_back({ bb_max[0] + pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] });
-        add_rows.push_back({ bb_max[0] + pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] });
-        add_rows.push_back({ bb_max[0] + pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] });
+        add_rows.push_back(BV.row(0));
+        add_rows.push_back(BV.row(1));
+        add_rows.push_back(BV.row(2));
+        add_rows.push_back(BV.row(3));
+        add_rows.push_back(BV.row(4));
+        add_rows.push_back(BV.row(5));
+        add_rows.push_back(BV.row(6));
+        add_rows.push_back(BV.row(7));
 
         // refine each square face
-        size_t REFINE_DEG = 4;
+        // size_t REFINE_DEG = 1;
 
-        // bottom 3
-        Eigen::Vector3d base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
-            }
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
-            }
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
-            }
-        }
-        // top 3
-        base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
-            }
-        }
-        base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
-            }
-        }
-        base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            for (size_t j = 1; j < REFINE_DEG; j++) {
-                add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
-            }
-        }
+        // // bottom 3
+        // Eigen::Vector3d base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
+        //     }
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
+        //     }
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
+        //     }
+        // }
+        // // top 3
+        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
+        //     }
+        // }
+        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
+        //     }
+        // }
+        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     for (size_t j = 1; j < REFINE_DEG; j++) {
+        //         add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
+        //     }
+        // }
         
-        // refine 12 edges
-        base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        }
-        base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        }
-        base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        }
-        base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        }
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        }
-        base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        }
-        base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        }
-        base = { bb_max[0] + pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (size_t i = 1; i < REFINE_DEG; i++) {
-            add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        }
+        // // refine 12 edges
+        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
+        // }
+        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
+        // }
+        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
+        // }
+        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
+        // }
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
+        // }
+        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
+        // }
+        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
+        // }
+        // base = { bb_max[0] + pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
+        // for (size_t i = 1; i < REFINE_DEG; i++) {
+        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
+        // }
     
     int START_CAGE = add_rows.size();
 
     // ADD CAGE POINTS
     // Icosphere surrounding each interior point
 
-    double CAGE_RADIUS = delta[0] / 100.;
+    double CAGE_RADIUS = pad / 5.;
 
     for (int i = 0; i < P.rows(); i++) {
 
@@ -178,17 +206,13 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, Eigen::VectorXi, s
     // append points
     Eigen::MatrixXd P_new(P.rows() + add_rows.size(), 3);
     Eigen::MatrixXd N_new = Eigen::MatrixXd::Zero(N.rows() + add_rows.size(), 3);
-    Eigen::VectorXi is_boundary_point = Eigen::VectorXi::Zero(P.rows() + add_rows.size());
     Eigen::VectorXi is_cage_point = Eigen::VectorXi::Zero(P.rows() + add_rows.size());
     std::vector<std::vector<int>> my_cage_points(P.rows() + add_rows.size(), std::vector<int>());
     
     size_t i = 0;
     for (Eigen::Vector3d row_to_add: add_rows) {
         P_new.row(i) = row_to_add;
-        std::cout << row_to_add << std::endl;
-        if (i < START_CAGE) {
-            is_boundary_point[i] = 1;
-        } else {
+        if (i >= START_CAGE) {
             is_cage_point[i] = 1;
             my_cage_points[((i - START_CAGE) / 12) + add_rows.size()].push_back(i);
         }
@@ -200,7 +224,7 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, Eigen::VectorXi, s
         i++;
     }
 
-    return std::make_tuple(P_new, N_new, is_boundary_point, is_cage_point, my_cage_points, bb);
+    return std::make_tuple(P_new, N_new, is_cage_point, my_cage_points, bb, BF);
 
 }
 
