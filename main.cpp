@@ -73,11 +73,13 @@ int main(int argc, char **argv) {
 
 	std::cout << "Starting tetrahedralization..." << std::endl;
 
-	double tet_area = 0.00001 * pow((f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod(), 1./3.);
+	double tet_area = 0.0001 * (f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod();
 
 	std::cout << "Max tet area: " << tet_area << std::endl;
+	std::cout << (f.bb.row(0) - f.bb.row(1)).cwiseAbs() << std::endl;
+	std::cout << (f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod() << std::endl;
 
-	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "Vpq1.414a"+ std::to_string(tet_area),
+	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a"+ std::to_string(tet_area),
 												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
 
 	std::cout << "Finished tetrahedralizing" << std::endl;
@@ -93,6 +95,8 @@ int main(int argc, char **argv) {
 	solveFieldDifference(f);
 	estimateNormals(f);
 
+	Eigen::VectorXd flipped = scoreNormalEst(f);
+
 	polyscope::init();
 	polyscope::state::userCallback = myCallback;
 
@@ -102,6 +106,7 @@ int main(int argc, char **argv) {
 	pc->setEnabled(true);
 	pc->addVectorQuantity("Normals, true", f.N);
 	pc->addVectorQuantity("Normals, est.", f.N_est);
+	pc->addScalarQuantity("Flipped", flipped);
 
 	auto tet_mesh = polyscope::registerTetMesh("Tet. mesh", f.TV, f.TT);
 	tet_mesh->setCullWholeElements(false);

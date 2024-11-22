@@ -1,6 +1,6 @@
 #include "solve.h"
 
-Eigen::MatrixXd potential_dirs = ico_pts_2;
+Eigen::MatrixXd potential_dirs = ico_pts;
 
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
     Eigen::VectorXd res = f.grad * func;

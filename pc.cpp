@@ -28,6 +28,28 @@ template <typename T> std::vector<T> reorder_vector(const std::vector<T> &vals, 
     return vals_new;
 }
 
+Eigen::VectorXd scoreNormalEst(struct Faraday &f) {
+
+    double sum_dot = 0;
+    size_t sum_disagree = 0;
+    Eigen::VectorXd flipped = Eigen::VectorXd::Zero(f.N.rows());
+    for (size_t i = 0; i < f.N.rows(); i++) {
+        double dp = f.N.row(i).dot(f.N_est.row(i));
+        sum_dot += dp;
+        sum_disagree += dp < 0;
+        flipped[i] = dp < 0;
+    }
+
+    std::cout << std::endl;
+    std::cout << "Total number flipped: " << sum_disagree << std::endl;
+    std::cout << "Percent agree: " << ((double)(f.N.rows() - sum_disagree)) / f.N.rows() << std::endl;
+    std::cout << "Avg. dot product: " << sum_dot / f.N.rows() << std::endl;
+    std::cout << std::endl;
+
+    return flipped;
+
+}
+
 void findBdryCage(struct Faraday &f) {
 
     Eigen::VectorXi is_bdry_tv_new = Eigen::VectorXi::Zero(f.TV.rows());

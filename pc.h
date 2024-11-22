@@ -24,6 +24,8 @@ void findTets(struct Faraday &f);
 
 void prepareTetgen(struct Faraday &f);
 
+Eigen::VectorXd scoreNormalEst(struct Faraday &f);
+
 inline const Eigen::MatrixXd ico_pts = (Eigen::MatrixXd(12, 3) << 
             0,      0.52573,      0.85065,
             0,     -0.52573,      0.85065,
