@@ -1,5 +1,7 @@
 #include "solve.h"
 
+Eigen::MatrixXd potential_dirs = ico_pts_2;
+
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
     Eigen::VectorXd res = f.grad * func;
     Eigen::MatrixXd g_f = Eigen::Map<Eigen::MatrixXd>(res.data(), f.TT.rows(), 3);
@@ -26,10 +28,10 @@ void solvePotentialOverDirs(struct Faraday &f) {
 
     std::cout << "Starting solve for potential over all directions." << std::endl;
 
-    f.u = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
-    f.u_grad = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows() * 3);
-    f.v_theta = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
-    f.v_theta_grad = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows() * 3);
+    f.u = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows());
+    f.u_grad = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows() * 3);
+    f.v_theta = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows());
+    f.v_theta_grad = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows() * 3);
 
     std::unordered_map<int, int> global_to_matrix_ordering;
     Eigen::SparseMatrix<double> KKT;
@@ -49,11 +51,11 @@ void solvePotentialOverDirs(struct Faraday &f) {
 
     */
 
-    for (int i = 0; i < ico_pts_2.rows(); i++) {
+    for (int i = 0; i < potential_dirs.rows(); i++) {
         std::cout << "\tSolving for directions " << i << std::endl;
 
         Eigen::VectorXd boundary_vals(f.TV.rows());
-        Eigen::VectorXd dir = ico_pts_2.row(i);
+        Eigen::VectorXd dir = potential_dirs.row(i);
         for (int j = 0; j < f.TV.rows(); j++) boundary_vals[j] = f.TV.row(j).dot(dir);
         f.v_theta.col(i) = boundary_vals;
         Eigen::MatrixXd boundary_vals_grad = grad_tv(f, boundary_vals);
@@ -84,11 +86,11 @@ void solveFieldDifference(struct Faraday &f) {
 
     */
 
-    Eigen::MatrixXd gradmag = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
+    Eigen::MatrixXd gradmag = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows());
     f.max = Eigen::VectorXd::Zero(f.TV.rows());
     f.max_grad = Eigen::MatrixXd::Zero(f.TV.rows(), 3);
 
-    for (int i = 0; i < ico_pts_2.rows(); i++) {
+    for (int i = 0; i < potential_dirs.rows(); i++) {
         std::cout << i << std::endl;
         Eigen::VectorXd grad_diff_norm = (f.u_grad.middleCols(i * 3, 3) - f.v_theta_grad.middleCols(i * 3, 3)).rowwise().norm();
         gradmag.col(i) = grad_diff_norm;

@@ -73,7 +73,11 @@ int main(int argc, char **argv) {
 
 	std::cout << "Starting tetrahedralization..." << std::endl;
 
-	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a0.01",
+	double tet_area = 0.00001 * pow((f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod(), 1./3.);
+
+	std::cout << "Max tet area: " << tet_area << std::endl;
+
+	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "Vpq1.414a"+ std::to_string(tet_area),
 												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
 
 	std::cout << "Finished tetrahedralizing" << std::endl;

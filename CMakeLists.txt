@@ -31,6 +31,38 @@ igl_include(copyleft tetgen)
 add_subdirectory(deps/polyscope)
 add_subdirectory(deps/geometry-central)
 
+# === Gurobi setup ===
+
+# Set the Gurobi path, either manually or via environment variable
+# You can adjust these paths based on where Gurobi is installed on your system.
+set(GUROBI_HOME "/Library/gurobi1200/macos_universal2")  # Change this to your Gurobi installation directory
+set(GUROBI_INCLUDE_DIR "${GUROBI_HOME}/include")
+set(GUROBI_LIB_DIR "${GUROBI_HOME}/lib")
+
+# If Gurobi was not found, raise an error
+if (NOT GUROBI_HOME)
+    message(FATAL_ERROR "Gurobi installation not found. Please set GUROBI_HOME.")
+else()
+    message(STATUS "-- Found Gurobi at ${GUROBI_HOME}")
+endif()
+
+# Add Gurobi include and lib directories to the project
+include_directories(${GUROBI_INCLUDE_DIR})
+link_directories(${GUROBI_LIB_DIR})
+
+# Add Gurobi to the list of libraries to link to your project
+list(APPEND GC_DEP_LIBS Gurobi)
+
+# If Gurobi is not already defined as a target, you can add it as an imported library.
+if (NOT TARGET Gurobi)
+    add_library(Gurobi STATIC IMPORTED)
+    set_target_properties(Gurobi PROPERTIES
+        IMPORTED_LOCATION "${GUROBI_LIB_DIR}/libgurobi.dylib"  # Update this for your platform
+    )
+endif()
+
+# === Done with Gurobi setup ===
+
 # Add your project files
 file(GLOB SRC_FILES *.cpp)
 add_executable(${PROJECT_NAME} ${SRC_FILES})
