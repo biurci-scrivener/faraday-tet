@@ -1,17 +1,36 @@
 #include "polyscope/polyscope.h"
 #include "polyscope/point_cloud.h"
+#include "polyscope/surface_mesh.h"
 #include "polyscope/volume_mesh.h"
 #include "args/args.hxx"
 #include "io.h"
 #include "pc.h"
+#include "vis.h"
 #include "faraday.h"
 #include "solve.h"
 
 #include <igl/grad.h>
 #include <igl/barycenter.h>
 #include <igl/copyleft/tetgen/tetrahedralize.h>
+#include <igl/volume.h>
 
-Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> faraday_solver;
+struct Faraday f;
+int u_idx = 0;
+
+void myCallback() {
+	ImGui::PushItemWidth(100);
+	if (ImGui::InputInt("Currently viewing: ", &u_idx)) {
+		if (u_idx < 0) {
+			u_idx = 0;
+		} else if (u_idx >= f.u.cols()) {
+			u_idx = f.u.cols() - 1;
+		}
+	}
+	if (ImGui::Button("Update")) {
+		vis_u(f, u_idx);
+  	}
+	ImGui::PopItemWidth();
+}
 
 int main(int argc, char **argv) {
 
@@ -31,7 +50,6 @@ int main(int argc, char **argv) {
 	return 1;
 	}
 
-	// Make sure a mesh name was given
 	if (!inputFilename) {
 	std::cerr << "Please specify a mesh file as argument" << std::endl;
 	return EXIT_FAILURE;
@@ -43,39 +61,62 @@ int main(int argc, char **argv) {
 	Eigen::MatrixXd N_original;
 
 	// load point cloud 
+
 	std::tie(P_original, N_original) = parsePLY(filename);
 
 	std::cout << "Loaded file " << filename << std::endl;
-
-	struct Faraday faraday;
-
-	Eigen::MatrixXi bb_faces;
-	std::tie(faraday.P, faraday.N, faraday.is_cage_point, faraday.my_cage_points, faraday.bb, bb_faces) = appendBoundaryAndCage(P_original, N_original);
-	std::cout << "Starting tetrahedralization..." << std::endl;
-	if (igl::copyleft::tetgen::tetrahedralize(faraday.P, bb_faces, "pq1.414a0.01", faraday.TV, faraday.TT, faraday.TF)) {
-		exit(-1);
-	}
 	
-	std::cout << "Finished tetrahedralizing" << std::endl;
-	igl::barycenter(faraday.TV, faraday.TT, faraday.BC);
-	std::tie(faraday.is_bdry_tv, faraday.is_cage_tv) = findBdryCage(faraday);
-	faraday.my_tets = findTets(faraday);
+	f.P = P_original;
+	f.N = N_original;
 
-	Eigen::SparseMatrix<double> grad;
-	igl::grad(faraday.TV, faraday.TT, grad);
+	prepareTetgen(f);
+
+	std::cout << "Starting tetrahedralization..." << std::endl;
+
+	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a0.01",
+												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
+
+	std::cout << "Finished tetrahedralizing" << std::endl;
+	igl::barycenter(f.TV, f.TT, f.BC);
+	igl::grad(f.TV, f.TT, f.grad);
+	igl::volume(f.TV, f.TT, f.vols);
+	findBdryCage(f);
+	findTets(f);
+
+	// solve for field over many directions
+
+	solvePotentialOverDirs(f);
+	solveFieldDifference(f);
+	estimateNormals(f);
 
 	polyscope::init();
+	polyscope::state::userCallback = myCallback;
 
-	auto pc = polyscope::registerPointCloud("Points", faraday.P);
+	// initialize structures
+
+	auto pc = polyscope::registerPointCloud("Points", f.P);
 	pc->setEnabled(true);
+	pc->addVectorQuantity("Normals, true", f.N);
+	pc->addVectorQuantity("Normals, est.", f.N_est);
 
-	auto tet_mesh = polyscope::registerTetMesh("Tet. mesh", faraday.TV, faraday.TT);
+	auto tet_mesh = polyscope::registerTetMesh("Tet. mesh", f.TV, f.TT);
 	tet_mesh->setCullWholeElements(false);
 	tet_mesh->setEnabled(true);
 	auto tet_slice = polyscope::addSceneSlicePlane();
 	tet_slice->setDrawPlane(false);
 	tet_slice->setDrawWidget(true);
 	tet_slice->setVolumeMeshToInspect("Tet. mesh");
+
+	auto tv_vis = polyscope::registerPointCloud("Tet. mesh, verts.", f.TV);
+	auto bc_vis = polyscope::registerPointCloud("Tet. mesh, cell centers", f.BC);
+
+	// call vis. functions
+
+	tv_vis->addScalarQuantity("Bdry.", f.is_bdry_tv);
+	tv_vis->addScalarQuantity("Cage", f.is_cage_tv);
+
+	vis_max(f);
+
 
 	polyscope::show();
 

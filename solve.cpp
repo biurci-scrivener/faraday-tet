@@ -1,26 +1,128 @@
 #include "solve.h"
 
-
-Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::SparseMatrix<double> &grad, Eigen::VectorXd &func) {
-    Eigen::VectorXd res = grad * func;
+Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
+    Eigen::VectorXd res = f.grad * func;
     Eigen::MatrixXd g_f = Eigen::Map<Eigen::MatrixXd>(res.data(), f.TT.rows(), 3);
     return g_f;
 }
 
-Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::SparseMatrix<double> &grad, Eigen::VectorXd &func) {
-    Eigen::VectorXd res = grad * func;
+Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func) {
+    Eigen::VectorXd res = f.grad * func;
     Eigen::MatrixXd g_f = Eigen::Map<Eigen::MatrixXd>(res.data(), f.TT.rows(), 3);
     Eigen::MatrixXd g_tv = Eigen::MatrixXd::Zero(f.TV.rows(), 3);
     for (size_t i = 0; i < f.TV.rows(); i++) {
+        double w_sum = 0.;
         for (int tet: f.my_tets[i]) {
-            g_tv.row(i) += g_f.row(tet); // can weight by volume later
+            g_tv.row(i) += g_f.row(tet) * f.vols[tet];
+            w_sum += f.vols[tet];
         }
-        if (f.my_tets[i].size() > 0) g_tv.row(i) /= f.my_tets[i].size();
+        if (f.my_tets[i].size() > 0) g_tv.row(i) /= w_sum;
     }
     return g_tv;
 }
 
-Eigen::VectorXd solveFaraday(struct Faraday &f, Eigen::SparseLU<Eigen::SparseMatrix<double>> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals) {
+void solvePotentialOverDirs(struct Faraday &f) {
+    
+
+    std::cout << "Starting solve for potential over all directions." << std::endl;
+
+    f.u = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
+    f.u_grad = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows() * 3);
+    f.v_theta = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
+    f.v_theta_grad = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows() * 3);
+
+    std::unordered_map<int, int> global_to_matrix_ordering;
+    Eigen::SparseMatrix<double> KKT;
+    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f);
+
+    std::cout << "Initializing solver, please wait." << std::endl;
+    geometrycentral::SquareSolver<double> solver(KKT);
+    std::cout << "Initialized solver" << std::endl;
+
+    /*
+
+        Let u, v_theta be the potentials with and without shielding
+        For each field direction, compute
+            - u
+            - v_theta
+            - gradients of each (on vertices)
+
+    */
+
+    for (int i = 0; i < ico_pts_2.rows(); i++) {
+        std::cout << "\tSolving for directions " << i << std::endl;
+
+        Eigen::VectorXd boundary_vals(f.TV.rows());
+        Eigen::VectorXd dir = ico_pts_2.row(i);
+        for (int j = 0; j < f.TV.rows(); j++) boundary_vals[j] = f.TV.row(j).dot(dir);
+        f.v_theta.col(i) = boundary_vals;
+        Eigen::MatrixXd boundary_vals_grad = grad_tv(f, boundary_vals);
+        f.v_theta_grad.col(i * 3) = boundary_vals_grad.col(0);
+        f.v_theta_grad.col(i * 3 + 1) = boundary_vals_grad.col(1);
+        f.v_theta_grad.col(i * 3 + 2) = boundary_vals_grad.col(2);
+
+        Eigen::VectorXd res = solveFaraday(f, solver, global_to_matrix_ordering, boundary_vals);
+        f.u.col(i) = res;
+        Eigen::MatrixXd res_grad = grad_tv(f, res);
+        f.u_grad.col(i * 3) = res_grad.col(0);
+        f.u_grad.col(i * 3 + 1) = res_grad.col(1);
+        f.u_grad.col(i * 3 + 2) = res_grad.col(2);
+    }
+
+}
+
+void solveFieldDifference(struct Faraday &f) {
+
+    /*
+
+        Let u, v_theta be the potentials with and without shielding
+        For each field direction, compute |grad_u - grad_v_theta|
+            (Note: these gradients live on vertices)
+
+        Then, take the maximum value (of this norm) across all directions
+        Finally, take gradient (on vertices)
+
+    */
+
+    Eigen::MatrixXd gradmag = Eigen::MatrixXd::Zero(f.TV.rows(), ico_pts_2.rows());
+    f.max = Eigen::VectorXd::Zero(f.TV.rows());
+    f.max_grad = Eigen::MatrixXd::Zero(f.TV.rows(), 3);
+
+    for (int i = 0; i < ico_pts_2.rows(); i++) {
+        std::cout << i << std::endl;
+        Eigen::VectorXd grad_diff_norm = (f.u_grad.middleCols(i * 3, 3) - f.v_theta_grad.middleCols(i * 3, 3)).rowwise().norm();
+        gradmag.col(i) = grad_diff_norm;
+    }
+
+    f.max = gradmag.rowwise().maxCoeff();
+    f.max_grad = grad_tv(f, f.max);
+    f.max_grad_normalized = f.max_grad.rowwise().normalized();
+
+}
+
+void estimateNormals(struct Faraday &f) {
+    
+    /*
+    
+        Normals are estimated from max_grad
+
+    */
+
+    f.N_est = Eigen::MatrixXd::Zero(f.P.rows(), 3);
+    std::cout << f.max_grad.rows() << std::endl;
+    std::cout << f.max_grad.cols() << std::endl;
+    
+    for (int i = 0; i < f.P.rows(); i++) {
+        for (int cage: f.my_cage_points[i]) {
+            f.N_est.row(i) += f.max_grad.row(cage);
+        }
+        f.N_est.row(i) /= f.my_cage_points[i].size();
+        f.N_est.row(i) = f.N_est.row(i).normalized();
+    }
+
+}
+
+Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals) {
 
     int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1;
 
@@ -34,10 +136,10 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, Eigen::SparseLU<Eigen::SparseMat
     }
 
     Eigen::VectorXd u = solver.solve(RHS);
-    if (solver.info() != Eigen::Success) {
-        std::cout << "ERROR: Solve failed!" << std::endl;
-        exit(-1);
-    }
+    // if (solver.info() != Eigen::Success) {
+    //     std::cout << "ERROR: Solve failed!" << std::endl;
+    //     exit(-1);
+    // }
 
     Eigen::VectorXd sol = Eigen::VectorXd::Zero(f.TV.rows());
 
@@ -46,7 +148,7 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, Eigen::SparseLU<Eigen::SparseMat
     return sol;
 }
 
-std::unordered_map<int, int> computeFaraday(struct Faraday &f, Eigen::SparseLU<Eigen::SparseMatrix<double>> &solver) {
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f) {
 
     // bdry_vals should be TV.rows() long, but only the entries for boundary vertices will be considered
     /*
@@ -85,16 +187,19 @@ std::unordered_map<int, int> computeFaraday(struct Faraday &f, Eigen::SparseLU<E
     // build Laplacian 
     // this is the Laplacian for ALL verts
 
-    Eigen::SparseMatrix<double> L;
-    igl::cotmatrix(f.TV, f.TT, L);
-    L = L * L;
+    Eigen::SparseMatrix<double> M;
+    Eigen::SparseMatrix<double> D;
+    Eigen::SparseMatrix<double> D_inv;
 
-    // put mass matrix here
+    igl::cotmatrix(f.TV, f.TT, M);
+    igl::massmatrix(f.TV, f.TT, igl::MASSMATRIX_TYPE_BARYCENTRIC, D);
+    igl::invert_diag(D, D_inv);
+
+    Eigen::SparseMatrix<double> L = D_inv * M;
 
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
             triplets.push_back(Eigen::Triplet<double>(global_to_matrix_ordering[it.row()], global_to_matrix_ordering[(it.col())], it.value()));
-            // std::cout << global_to_matrix_ordering[it.row()] << " " << global_to_matrix_ordering[(it.col())] << " " << it.value() << "\n";
         }
     }
 
@@ -120,13 +225,7 @@ std::unordered_map<int, int> computeFaraday(struct Faraday &f, Eigen::SparseLU<E
 
     std::cout << "\tSet KKT matrix. Size is " << KKT.rows() << " x " << KKT.cols() << ". Decomposing, this may a take a while..." << std::endl;
 
-    solver.compute(KKT);
-    if (solver.info() != Eigen::Success) {
-        std::cout << "ERROR: Decomposition failed!" << std::endl;
-        exit(-1);
-    }
-    
-    return global_to_matrix_ordering;
+    return std::make_tuple(global_to_matrix_ordering, KKT);
 
 }
 

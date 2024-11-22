@@ -8,17 +8,39 @@ struct Faraday {
 
     Eigen::MatrixXd P;
     Eigen::MatrixXd N;
-    // Eigen::VectorXi is_boundary_point; // not needed. can just check if in first 8
-	Eigen::VectorXi is_cage_point;
-    Eigen::VectorXi is_cage_tv;
-    Eigen::VectorXi is_bdry_tv;
 	std::vector<std::vector<int>> my_cage_points;
-    std::vector<std::vector<int>> my_tets;
 	Eigen::MatrixXd bb;
+
+    // tet stuff
+    Eigen::MatrixXd V;
+    Eigen::MatrixXi F;
     Eigen::MatrixXd TV;
 	Eigen::MatrixXi TT;
 	Eigen::MatrixXi TF;
+    Eigen::VectorXi VM,FM;
+    Eigen::MatrixXd H,R;
+    Eigen::VectorXi TM,TR,PT;
+    Eigen::MatrixXi FT,TN;
     Eigen::MatrixXd BC;
+    int num_regions;
+
+    Eigen::VectorXi is_cage_tv;
+    Eigen::VectorXi is_bdry_tv;
+
+    std::vector<std::vector<int>> my_tets;
+
+    // numerical
+    Eigen::SparseMatrix<double> grad;
+    Eigen::VectorXd vols;
+    Eigen::MatrixXd u;
+    Eigen::MatrixXd u_grad;
+    Eigen::MatrixXd v_theta;
+    Eigen::MatrixXd v_theta_grad;
+    Eigen::VectorXd max;
+    Eigen::MatrixXd max_grad;
+    Eigen::MatrixXd max_grad_normalized;
+
+    Eigen::MatrixXd N_est;
 
 };
 

@@ -1,7 +1,11 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.20)
 project(example)
 
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64")
+endif()
 
 # Libigl
 include(libigl)
@@ -25,6 +29,7 @@ igl_include(copyleft tetgen)
 #igl_include(restricted triangle)
 
 add_subdirectory(deps/polyscope)
+add_subdirectory(deps/geometry-central)
 
 # Add your project files
 file(GLOB SRC_FILES *.cpp)
@@ -51,4 +56,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   # igl_restricted::mosek
   # igl_restricted::triangle
   polyscope
+  geometry-central
   )

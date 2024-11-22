@@ -1,3 +1,6 @@
+#ifndef PC_FUNCTIONS
+#define PC_FUNCTIONS
+
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <iostream>
@@ -15,11 +18,11 @@
 #include <unordered_map>
 #include <stdexcept>
 
-std::tuple<Eigen::VectorXi, Eigen::VectorXi> findBdryCage(struct Faraday &f);
+void findBdryCage(struct Faraday &f);
 
-std::vector<std::vector<int>> findTets(struct Faraday &f);
+void findTets(struct Faraday &f);
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, std::vector<std::vector<int>>, Eigen::MatrixXd, Eigen::MatrixXi> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N);
+void prepareTetgen(struct Faraday &f);
 
 inline const Eigen::MatrixXd ico_pts = (Eigen::MatrixXd(12, 3) << 
             0,      0.52573,      0.85065,
@@ -34,6 +37,28 @@ inline const Eigen::MatrixXd ico_pts = (Eigen::MatrixXd(12, 3) <<
      -0.85065,            0,      0.52573,
       0.85065,            0,     -0.52573,
      -0.85065,            0,     -0.52573).finished();
+
+inline const Eigen::MatrixXi ico_faces = (Eigen::MatrixXi(20, 3) << 
+      0,     1,     8,
+      0,     8,     4,
+      0,     4,     5,
+      0,     5,     9,
+      0,     9,     1,
+      1,     6,     8,
+      8,     6,    10,
+      8,    10,     4,
+      4,    10,     2,
+      4,     2,     5,
+      5,     2,    11,
+      5,    11,     9,
+      9,    11,     7,
+      9,     7,     1,
+      1,     7,     6,
+      3,     6,     7,
+      3,     7,    11,
+      3,    11,     2,
+      3,     2,    10,
+      3,    10,     6).finished();
 
 inline const Eigen::MatrixXd ico_pts_1 = (Eigen::MatrixXd(42, 3) << 
             0,      0.52573,      0.85065,
@@ -888,3 +913,4 @@ inline const Eigen::MatrixXd ico_pts_3 = (Eigen::MatrixXd(642, 3) <<
       -9.129825e-01, -3.996071e-01, -8.232358e-02,
       -9.638613e-01, -2.664047e-01, 0).finished();
 
+#endif

@@ -28,27 +28,28 @@ template <typename T> std::vector<T> reorder_vector(const std::vector<T> &vals, 
     return vals_new;
 }
 
-std::tuple<Eigen::VectorXi, Eigen::VectorXi> findBdryCage(struct Faraday &f) {
+void findBdryCage(struct Faraday &f) {
 
-    Eigen::VectorXi is_bdry_tv = Eigen::VectorXi::Zero(f.TV.rows());
-    Eigen::VectorXi is_cage_tv = Eigen::VectorXi::Zero(f.TV.rows());
+    Eigen::VectorXi is_bdry_tv_new = Eigen::VectorXi::Zero(f.TV.rows());
+    Eigen::VectorXi is_cage_tv_new = Eigen::VectorXi::Zero(f.TV.rows());
 
     for (size_t i = 0; i < f.TV.rows(); i++) {
-        if ((i < f.is_cage_point.rows()) && (i > 7)) {
-            is_cage_tv[i] = f.is_cage_point(i);
+        if ((i < f.is_cage_tv.rows()) && (i > 7)) {
+            is_cage_tv_new[i] = f.is_cage_tv(i);
         } else if ( (f.TV(i,0) == f.bb(0,0) || f.TV(i,0) == f.bb(1,0)) ||
                     (f.TV(i,1) == f.bb(0,1) || f.TV(i,1) == f.bb(1,1)) ||
                     (f.TV(i,2) == f.bb(0,2) || f.TV(i,2) == f.bb(1,2))
                     ) {
-            is_bdry_tv[i] = true;
+            is_bdry_tv_new[i] = true;
         }
     }
 
-    return std::make_tuple(is_bdry_tv, is_cage_tv);
+    f.is_cage_tv = is_cage_tv_new;
+    f.is_bdry_tv = is_bdry_tv_new;
 
 }
 
-std::vector<std::vector<int>> findTets(struct Faraday &f) {
+void findTets(struct Faraday &f) {
 
     std::vector<std::vector<int>> my_tets(f.TV.rows(), std::vector<int>());
 
@@ -58,18 +59,18 @@ std::vector<std::vector<int>> findTets(struct Faraday &f) {
         }
     }
 
-    return my_tets;
+    f.my_tets = my_tets;
 
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, std::vector<std::vector<int>>, Eigen::MatrixXd, Eigen::MatrixXi> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
+void prepareTetgen(struct Faraday &f) {
 
     // pre-append corners of bounding box
 
     Eigen::MatrixXd BV;
     Eigen::MatrixXi BF;
 
-    igl::bounding_box(P, BV, BF);
+    igl::bounding_box(f.P, BV, BF);
 
     double PADDING = 0.25;
 
@@ -78,7 +79,7 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, std::vector<std::v
 
     double pad = (bb_max - bb_min).cwiseAbs().minCoeff() * PADDING;
 
-    igl::bounding_box(P, pad, BV, BF);
+    igl::bounding_box(f.P, pad, BV, BF);
     
     Eigen::MatrixXd bb(2,3);
     bb.row(0) << BV.row(0);
@@ -87,144 +88,86 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::VectorXi, std::vector<std::v
     int START_BDRY = 0;
 
     std::vector<Eigen::Vector3d> add_rows;
+    std::vector<Eigen::Vector3i> add_faces;
 
     // ADD BOUNDARY POINTS
 
-        // corners
-        add_rows.push_back(BV.row(0));
-        add_rows.push_back(BV.row(1));
-        add_rows.push_back(BV.row(2));
-        add_rows.push_back(BV.row(3));
-        add_rows.push_back(BV.row(4));
-        add_rows.push_back(BV.row(5));
-        add_rows.push_back(BV.row(6));
-        add_rows.push_back(BV.row(7));
-
-        // refine each square face
-        // size_t REFINE_DEG = 1;
-
-        // // bottom 3
-        // Eigen::Vector3d base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
-        //     }
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
-        //     }
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
-        //     }
-        // }
-        // // top 3
-        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
-        //     }
-        // }
-        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
-        //     }
-        // }
-        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     for (size_t j = 1; j < REFINE_DEG; j++) {
-        //         add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
-        //     }
-        // }
-        
-        // // refine 12 edges
-        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        // }
-        // base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        // }
-        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        // }
-        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        // }
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        // }
-        // base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
-        // }
-        // base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
-        // }
-        // base = { bb_max[0] + pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        // for (size_t i = 1; i < REFINE_DEG; i++) {
-        //     add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
-        // }
+    // corners
+    add_rows.push_back(BV.row(0));
+    add_rows.push_back(BV.row(1));
+    add_rows.push_back(BV.row(2));
+    add_rows.push_back(BV.row(3));
+    add_rows.push_back(BV.row(4));
+    add_rows.push_back(BV.row(5));
+    add_rows.push_back(BV.row(6));
+    add_rows.push_back(BV.row(7));
+    add_faces.push_back(BF.row(0));
+    add_faces.push_back(BF.row(1));
+    add_faces.push_back(BF.row(2));
+    add_faces.push_back(BF.row(3));
+    add_faces.push_back(BF.row(4));
+    add_faces.push_back(BF.row(5));
+    add_faces.push_back(BF.row(6));
+    add_faces.push_back(BF.row(7));
+    add_faces.push_back(BF.row(8));
+    add_faces.push_back(BF.row(9));
+    add_faces.push_back(BF.row(10));
+    add_faces.push_back(BF.row(11));
     
     int START_CAGE = add_rows.size();
 
     // ADD CAGE POINTS
     // Icosphere surrounding each interior point
 
-    double CAGE_RADIUS = pad / 5.;
+    double CAGE_RADIUS = pad / 20.;
 
-    for (int i = 0; i < P.rows(); i++) {
+    for (int i = 0; i < f.P.rows(); i++) {
 
-        Eigen::Vector3d pt = P.row(i);
+        Eigen::Vector3d pt = f.P.row(i);
+
+        size_t this_base = add_rows.size();
 
         for (int j = 0; j < ico_pts.rows(); j++) {
             Eigen::Vector3d ico_pt = ico_pts.row(j);
             add_rows.push_back(pt + ico_pt * CAGE_RADIUS);
         }
 
+        for (int j = 0; j < ico_faces.rows(); j++) {
+            Eigen::Vector3i ico_face = ico_faces.row(j);
+            add_faces.push_back(Eigen::Vector3i::Ones() * this_base + ico_face);
+        }
+
     }
 
     // append points
-    Eigen::MatrixXd P_new(P.rows() + add_rows.size(), 3);
-    Eigen::MatrixXd N_new = Eigen::MatrixXd::Zero(N.rows() + add_rows.size(), 3);
-    Eigen::VectorXi is_cage_point = Eigen::VectorXi::Zero(P.rows() + add_rows.size());
-    std::vector<std::vector<int>> my_cage_points(P.rows() + add_rows.size(), std::vector<int>());
+    Eigen::MatrixXd V(add_rows.size(), 3);
+    Eigen::MatrixXi F(add_faces.size(), 3);
+    Eigen::VectorXi is_cage_tv(add_rows.size());
+    std::vector<std::vector<int>> my_cage_points(f.P.size(), std::vector<int>());
     
     size_t i = 0;
     for (Eigen::Vector3d row_to_add: add_rows) {
-        P_new.row(i) = row_to_add;
+        V.row(i) = row_to_add;
         if (i >= START_CAGE) {
-            is_cage_point[i] = 1;
-            my_cage_points[((i - START_CAGE) / 12) + add_rows.size()].push_back(i);
+            is_cage_tv[i] = 1;
+            my_cage_points[(i - START_CAGE) / 12].push_back(i);
         }
         i++;
     }
-    while (i < P.rows() + add_rows.size()) {
-        P_new.row(i) = P.row(i - add_rows.size());
-        N_new.row(i) = N.row(i - add_rows.size());
+
+    i = 0;
+    for (Eigen::VectorXi face_to_add: add_faces) {
+        F.row(i) = face_to_add;
         i++;
     }
 
-    return std::make_tuple(P_new, N_new, is_cage_point, my_cage_points, bb, BF);
+    // set attributes of Faraday struct
+    f.bb = bb;
+    f.my_cage_points = my_cage_points;
+    f.is_cage_tv = is_cage_tv;
+    f.V = V;
+    f.F = F;
+    f.H = f.P;
 
 }
 
