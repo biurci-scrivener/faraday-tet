@@ -89,7 +89,8 @@
         "span": "cpp",
         "strstream": "cpp",
         "typeindex": "cpp",
-        "*.expression": "cpp"
+        "*.expression": "cpp",
+        "__memory": "cpp"
     },
     "cmake.configureSettings": { "CMAKE_APPLE_SILICON_PROCESSOR": "arm64" }
 }

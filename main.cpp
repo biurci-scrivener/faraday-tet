@@ -82,11 +82,19 @@ int main(int argc, char **argv) {
 	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a"+ std::to_string(tet_area),
 												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
 
+	// if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "p",
+	// 											f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
+
 	std::cout << "Finished tetrahedralizing" << std::endl;
+	std::cout << "Computing cell barycenters" << std::endl;
 	igl::barycenter(f.TV, f.TT, f.BC);
+	std::cout << "Computing grad operator" << std::endl;
 	igl::grad(f.TV, f.TT, f.grad);
+	std::cout << "Computing cell volumes" << std::endl;
 	igl::volume(f.TV, f.TT, f.vols);
+	std::cout << "Assigning boundary/cage verts." << std::endl;
 	findBdryCage(f);
+	std::cout << "Assigning tets." << std::endl;
 	findTets(f);
 
 	// solve for field over many directions
@@ -111,6 +119,11 @@ int main(int argc, char **argv) {
 	auto tet_mesh = polyscope::registerTetMesh("Tet. mesh", f.TV, f.TT);
 	tet_mesh->setCullWholeElements(false);
 	tet_mesh->setEnabled(true);
+
+	// Gurobi test
+	// Eigen::VectorXd sol_gurobi = solvePotentialOverDirs_Gurobi(f);
+	// tet_mesh->addVertexScalarQuantity("Gurobi solve", sol_gurobi);
+
 	auto tet_slice = polyscope::addSceneSlicePlane();
 	tet_slice->setDrawPlane(false);
 	tet_slice->setDrawWidget(true);

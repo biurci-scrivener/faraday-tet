@@ -43,23 +43,28 @@ set(GUROBI_LIB_DIR "${GUROBI_HOME}/lib")
 if (NOT GUROBI_HOME)
     message(FATAL_ERROR "Gurobi installation not found. Please set GUROBI_HOME.")
 else()
-    message(STATUS "-- Found Gurobi at ${GUROBI_HOME}")
+    message(STATUS "Gurobi home directory set as ${GUROBI_HOME}")
 endif()
 
 # Add Gurobi include and lib directories to the project
 include_directories(${GUROBI_INCLUDE_DIR})
 link_directories(${GUROBI_LIB_DIR})
+message(STATUS "Gurobi include dir: ${GUROBI_INCLUDE_DIR}")
+message(STATUS "Gurobi library dir: ${GUROBI_LIB_DIR}")
 
-# Add Gurobi to the list of libraries to link to your project
-list(APPEND GC_DEP_LIBS Gurobi)
+# # Add Gurobi to the list of libraries to link to your project
+# list(APPEND GC_DEP_LIBS Gurobi)
 
 # If Gurobi is not already defined as a target, you can add it as an imported library.
-if (NOT TARGET Gurobi)
-    add_library(Gurobi STATIC IMPORTED)
-    set_target_properties(Gurobi PROPERTIES
-        IMPORTED_LOCATION "${GUROBI_LIB_DIR}/libgurobi.dylib"  # Update this for your platform
-    )
-endif()
+add_library(Gurobi STATIC IMPORTED)
+set_target_properties(Gurobi PROPERTIES
+  IMPORTED_LOCATION "${GUROBI_LIB_DIR}/libgurobi_c++.a"  # Update this for your platform
+)
+
+add_library(Gurobi_dylib STATIC IMPORTED)
+set_target_properties(Gurobi_dylib PROPERTIES
+  IMPORTED_LOCATION "${GUROBI_LIB_DIR}/libgurobi120.dylib"  # Update this for your platform
+)
 
 # === Done with Gurobi setup ===
 
@@ -89,4 +94,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   # igl_restricted::triangle
   polyscope
   geometry-central
+  Gurobi
+  Gurobi_dylib
   )

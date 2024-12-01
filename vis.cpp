@@ -24,5 +24,17 @@ void vis_max(struct Faraday f) {
     tet_pc->addVectorQuantity("Grad. of max.", f.max_grad);
     tet_pc->addVectorQuantity("Grad. of max., normalized", f.max_grad_normalized);
 
+    // put them just on the cage vertices, also
+    Eigen::MatrixXd max_grad_cage = f.max_grad; // should be a deep copy
+    Eigen::MatrixXd max_grad_normalized_cage = f.max_grad_normalized; 
+    for (size_t i; i < f.TV.rows(); i++) {
+        if (!f.is_cage_tv(i)) {
+            max_grad_cage.row(i) = Eigen::VectorXd::Zero(3);
+            max_grad_normalized_cage.row(i) = Eigen::VectorXd::Zero(3);
+        }
+    }
+    tet_pc->addVectorQuantity("Grad. of max. (cage)", max_grad_cage);
+    tet_pc->addVectorQuantity("Grad. of max., normalized (cage)", max_grad_normalized_cage);
+
 
 }

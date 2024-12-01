@@ -9,11 +9,15 @@
 #include <igl/massmatrix.h>
 #include <igl/invert_diag.h>
 
+#include "gurobi_c++.h"
+
 #include "geometrycentral/numerical/linear_solvers.h"
 
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func);
 
 Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func);
+
+Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f);
 
 void solvePotentialOverDirs(struct Faraday &f);
 
