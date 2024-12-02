@@ -49,15 +49,16 @@ void myCallback() {
 			if (it == pt_constraints.end()) {
 				pt_constraints.push_back(pt_idx);
 			}
+		} else {
+			std::cout << "Bad index for pt. constraint" << std::endl;
 		}
-		std::cout << "Bad index for pt. constraint" << std::endl;
 	}
 	std::string list_pt_charges = "Currently, point charges at: \n";
 	for (int pt: pt_constraints) list_pt_charges += std::to_string(pt) + "\n";
 	ImGui::Text("%s", list_pt_charges.c_str());
 	if (ImGui::Button("Recompute")) {
 
-		solvePotentialOverDirs(f, pt_constraints);
+		solvePotentialPointCharges(f, pt_constraints);
 		solveFieldDifference(f);
 		estimateNormals(f);
 
@@ -150,7 +151,7 @@ int main(int argc, char **argv) {
 
 	// solve for field over many directions
 
-	solvePotentialOverDirs(f, pt_constraints);
+	solvePotentialOverDirs(f);
 	solveFieldDifference(f);
 	estimateNormals(f);
 
