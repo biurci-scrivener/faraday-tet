@@ -1,5 +1,7 @@
 #include "solve.h"
 
+#define USE_BILAPLACIAN false
+
 Eigen::MatrixXd potential_dirs = ico_pts;
 
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
@@ -112,7 +114,7 @@ Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f) {
     return sol;
 }
 
-void solvePotentialOverDirs(struct Faraday &f) {
+void solvePotentialOverDirs(struct Faraday &f, std::vector<int> &pt_constraints) {
     
 
     std::cout << "Starting solve for potential over all directions." << std::endl;
@@ -122,12 +124,24 @@ void solvePotentialOverDirs(struct Faraday &f) {
     f.v_theta = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows());
     f.v_theta_grad = Eigen::MatrixXd::Zero(f.TV.rows(), potential_dirs.rows() * 3);
 
+    // pre-solve for Faraday effect
+
     std::unordered_map<int, int> global_to_matrix_ordering;
     Eigen::SparseMatrix<double> KKT;
-    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f);
+    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f, pt_constraints);
 
     std::cout << "Initializing solver, please wait." << std::endl;
     geometrycentral::SquareSolver<double> solver(KKT);
+    std::cout << "Initialized solver" << std::endl;
+
+    // pre-solve for potential sans shielding
+
+    std::unordered_map<int, int> global_to_matrix_ordering_base;
+    Eigen::SparseMatrix<double> KKT_base;
+    std::tie(global_to_matrix_ordering_base, KKT_base) = computeBasePotential(f, pt_constraints);
+
+    std::cout << "Initializing solver, please wait." << std::endl;
+    geometrycentral::SquareSolver<double> solver_base(KKT_base);
     std::cout << "Initialized solver" << std::endl;
 
     /*
@@ -146,13 +160,17 @@ void solvePotentialOverDirs(struct Faraday &f) {
         Eigen::VectorXd boundary_vals(f.TV.rows());
         Eigen::VectorXd dir = potential_dirs.row(i);
         for (int j = 0; j < f.TV.rows(); j++) boundary_vals[j] = f.TV.row(j).dot(dir);
-        f.v_theta.col(i) = boundary_vals;
-        Eigen::MatrixXd boundary_vals_grad = grad_tv(f, boundary_vals);
+        
+        // f.v_theta.col(i) = boundary_vals;
+        Eigen::VectorXd res_base = solveBasePotential(f, solver_base, global_to_matrix_ordering_base, boundary_vals, pt_constraints);
+        f.v_theta.col(i) = res_base;
+        Eigen::MatrixXd boundary_vals_grad = grad_tv(f, res_base);
+
         f.v_theta_grad.col(i * 3) = boundary_vals_grad.col(0);
         f.v_theta_grad.col(i * 3 + 1) = boundary_vals_grad.col(1);
         f.v_theta_grad.col(i * 3 + 2) = boundary_vals_grad.col(2);
 
-        Eigen::VectorXd res = solveFaraday(f, solver, global_to_matrix_ordering, boundary_vals);
+        Eigen::VectorXd res = solveFaraday(f, solver, global_to_matrix_ordering, boundary_vals, pt_constraints);
         f.u.col(i) = res;
         Eigen::MatrixXd res_grad = grad_tv(f, res);
         f.u_grad.col(i * 3) = res_grad.col(0);
@@ -213,9 +231,9 @@ void estimateNormals(struct Faraday &f) {
 
 }
 
-Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals) {
+Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals, std::vector<int> &pt_constraints) {
 
-    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1;
+    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1 + pt_constraints.size();
 
     // build RHS
     Eigen::VectorXd RHS = Eigen::VectorXd::Zero(f.TV.rows() + constraints_size);
@@ -224,6 +242,12 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
             int current_idx = global_to_matrix_ordering[i];
             RHS[f.TV.rows() + current_idx] = bdry_vals[i];
         }
+    }
+
+    double pt_constraint_val = bdry_vals.maxCoeff();
+
+    for (size_t i = 0; i < pt_constraints.size(); i++) {
+        RHS[f.TV.rows() + f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1 + i] = pt_constraint_val;
     }
 
     Eigen::VectorXd u = solver.solve(RHS);
@@ -239,7 +263,7 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
     return sol;
 }
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f) {
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints) {
 
     // bdry_vals should be TV.rows() long, but only the entries for boundary vertices will be considered
     /*
@@ -271,7 +295,7 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
 
     std::cout << "\tDone reindexing" << std::endl;
 
-    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1;
+    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1 + pt_constraints.size();
     Eigen::SparseMatrix<double> KKT(f.TV.rows() + constraints_size, f.TV.rows() + constraints_size);
     std::vector<Eigen::Triplet<double>> triplets;
 
@@ -286,8 +310,8 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
     igl::massmatrix(f.TV, f.TT, igl::MASSMATRIX_TYPE_BARYCENTRIC, D);
     igl::invert_diag(D, D_inv);
 
-    Eigen::SparseMatrix<double> L = D_inv * -M;
-    //L = L * L;
+    Eigen::SparseMatrix<double> L = D_inv * M;
+    if (USE_BILAPLACIAN) L = L * L;
 
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
@@ -310,6 +334,11 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
         // std::cout << f.TV.rows() + cage << " " << cage << " " << 1. << "\n";
         // std::cout << f.TV.rows() + cage << " " << cage + 1 << " " << -1. << "\n";
     }
+    for (int pt = 0; pt < pt_constraints.size(); pt++) {
+        int pt_idx = global_to_matrix_ordering[pt_constraints[pt]];
+        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1 + pt, pt_idx, 1.));
+        triplets.push_back(Eigen::Triplet<double>(pt_idx, f.TV.rows() + f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1 + pt, 1.));
+    }
 
     std::cout << "\tAdded constraint triplets. About to set KKT matrix" << std::endl;
 
@@ -321,36 +350,103 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
 
 }
 
-// Eigen::VectorXd solveDirichletProblem(struct Faraday &f, Eigen::VectorXd &bdry_vals) {
+Eigen::VectorXd solveBasePotential(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals, std::vector<int> &pt_constraints) {
 
-//     Eigen::VectorXd sol = Eigen::VectorXd::Zero((f.TV.rows()));
+    int constraints_size = f.is_bdry_tv.sum() + pt_constraints.size();
 
-//     size_t BDRY_END = f.is_boundary_point.sum();
+    // build RHS
+    Eigen::VectorXd RHS = Eigen::VectorXd::Zero(f.TV.rows() + constraints_size);
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        if (f.is_bdry_tv(i)) {
+            int current_idx = global_to_matrix_ordering[i];
+            RHS[f.TV.rows() + current_idx] = bdry_vals[i];
+        }
+    }
 
-//     Eigen::SparseMatrix<double> L, L_in_in, L_in_b;
+    double pt_constraint_val = bdry_vals.maxCoeff();
 
-//     igl::cotmatrix(f.TV, f.TT, L);
+    for (size_t i = 0; i < pt_constraints.size(); i++) {
+        RHS[f.TV.rows() + f.is_bdry_tv.sum() + i] = pt_constraint_val;
+    }
 
-//     Eigen::VectorXi bdry_indices = Eigen::VectorXi::LinSpaced(BDRY_END, 0, BDRY_END - 1);
-//     std::cout << bdry_indices.transpose() << std::endl;
+    Eigen::VectorXd u = solver.solve(RHS);
+    // if (solver.info() != Eigen::Success) {
+    //     std::cout << "ERROR: Solve failed!" << std::endl;
+    //     exit(-1);    
+    // }
 
-//     Eigen::VectorXi interior_indices = Eigen::VectorXi::LinSpaced(f.TV.rows() - BDRY_END, BDRY_END, f.TV.rows() - 1);
-//     std::cout << interior_indices.transpose() << std::endl;
-//     Eigen::VectorXd g;
+    Eigen::VectorXd sol = Eigen::VectorXd::Zero(f.TV.rows());
 
-//     // std::cout << L << std::endl;
+    for (size_t i = 0; i < f.TV.rows(); i++) sol[i] = u[global_to_matrix_ordering[i]];
 
-//     igl::slice(L, interior_indices, interior_indices, L_in_in);
-//     igl::slice(L, interior_indices, bdry_indices, L_in_b);
-//     igl::slice(bdry_vals, bdry_indices, g);
+    return sol;
 
-//     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+}
 
-//     std::cout << "Starting Dirichlet solve..." << std::endl;
-//     solver.compute(-L_in_in);
-//     sol(interior_indices) = solver.solve(L_in_b * g);
-//     sol(bdry_indices) = g;
-//     std::cout << "Finished Dirichlet solve" << std::endl;
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints) {
 
-//     return sol;
-// }
+    // bdry_vals should be TV.rows() long, but only the entries for boundary vertices will be considered
+
+    std::unordered_map<int, int> global_to_matrix_ordering;
+    int matrix_count = 0;
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        if (f.is_bdry_tv(i)) {
+            global_to_matrix_ordering.insert({i, matrix_count});
+            matrix_count++;
+        }
+    }
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        if (!f.is_bdry_tv(i)) {
+            global_to_matrix_ordering.insert({i, matrix_count});
+            matrix_count++;
+        }
+    }
+    if (matrix_count != f.TV.rows()) {throw std::runtime_error("Not every cell was indexed");}
+
+    std::cout << "\tDone reindexing" << std::endl;
+
+    int constraints_size = f.is_bdry_tv.sum() + pt_constraints.size();
+    Eigen::SparseMatrix<double> KKT(f.TV.rows() + constraints_size, f.TV.rows() + constraints_size);
+    std::vector<Eigen::Triplet<double>> triplets;
+
+    // build Laplacian 
+    // this is the Laplacian for ALL verts
+
+    Eigen::SparseMatrix<double> M;
+    Eigen::SparseMatrix<double> D;
+    Eigen::SparseMatrix<double> D_inv;
+
+    igl::cotmatrix(f.TV, f.TT, M);
+    igl::massmatrix(f.TV, f.TT, igl::MASSMATRIX_TYPE_BARYCENTRIC, D);
+    igl::invert_diag(D, D_inv);
+
+    Eigen::SparseMatrix<double> L = D_inv * M;
+    if (USE_BILAPLACIAN) L = L * L;
+
+    for (int k=0; k<L.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
+            triplets.push_back(Eigen::Triplet<double>(global_to_matrix_ordering[it.row()], global_to_matrix_ordering[(it.col())], it.value()));
+        }
+    }
+
+    std::cout << "\tAdded Laplacian triplets" << std::endl;
+
+    for (int bdry = 0; bdry < f.is_bdry_tv.sum(); bdry++) {
+        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + bdry, bdry, 1.));
+        triplets.push_back(Eigen::Triplet<double>(bdry, f.TV.rows() + bdry, 1.));
+    }
+    for (int pt = 0; pt < pt_constraints.size(); pt++) {
+        int pt_idx = global_to_matrix_ordering[pt_constraints[pt]];
+        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + f.is_bdry_tv.sum() + pt, pt_idx, 1.));
+        triplets.push_back(Eigen::Triplet<double>(pt_idx, f.TV.rows() + f.is_bdry_tv.sum() + pt, 1.));
+    }
+
+    std::cout << "\tAdded constraint triplets. About to set KKT matrix" << std::endl;
+
+    KKT.setFromTriplets(triplets.begin(), triplets.end());
+
+    std::cout << "\tSet KKT matrix. Size is " << KKT.rows() << " x " << KKT.cols() << ". Decomposing, this may a take a while..." << std::endl;
+
+    return std::make_tuple(global_to_matrix_ordering, KKT);
+
+}

@@ -8,6 +8,9 @@ void vis_u(struct Faraday f, int idx) {
     u->setEnabled(true);
 
     polyscope::PointCloud * tet_pc = polyscope::getPointCloud("Tet. mesh, verts.");
+    tet_pc->addScalarQuantity("u", f.u.col(idx));
+    tet_pc->addScalarQuantity("v_theta", f.v_theta.col(idx));
+    tet_pc->addVectorQuantity("v_theta, grad.", f.v_theta_grad.middleCols(idx * 3, 3));
     tet_pc->addVectorQuantity("u, grad.", f.u_grad.middleCols(idx * 3, 3));
     tet_pc->addVectorQuantity("v_theta, grad.", f.v_theta_grad.middleCols(idx * 3, 3));
 }

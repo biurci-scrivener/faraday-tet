@@ -14,21 +14,72 @@
 #include <igl/copyleft/tetgen/tetrahedralize.h>
 #include <igl/volume.h>
 
+#include "imgui.h"
+
 struct Faraday f;
 int u_idx = 0;
+int pt_idx = 0;
+std::vector<int> pt_constraints;
 
 void myCallback() {
 	ImGui::PushItemWidth(100);
-	if (ImGui::InputInt("Currently viewing: ", &u_idx)) {
+
+	ImGui::Text("View direction: ");
+	ImGui::SameLine();
+	if (ImGui::InputInt("##Dir", &u_idx)) {
 		if (u_idx < 0) {
 			u_idx = 0;
 		} else if (u_idx >= f.u.cols()) {
 			u_idx = f.u.cols() - 1;
 		}
 	}
+	ImGui::SameLine();
 	if (ImGui::Button("Update")) {
 		vis_u(f, u_idx);
   	}
+
+	ImGui::Text("");
+
+	ImGui::Text("Add point charge at: ");
+	ImGui::SameLine();
+	ImGui::InputInt("##PtCharge", &pt_idx);
+	if (ImGui::Button("Add")) {
+		if ((pt_idx >= 0) && (pt_idx < f.TV.rows()) && (!f.is_bdry_tv(pt_idx)) && (!f.is_cage_tv(pt_idx))) {
+			auto it = std::find(pt_constraints.begin(), pt_constraints.end(), pt_idx);
+			if (it == pt_constraints.end()) {
+				pt_constraints.push_back(pt_idx);
+			}
+		}
+		std::cout << "Bad index for pt. constraint" << std::endl;
+	}
+	std::string list_pt_charges = "Currently, point charges at: \n";
+	for (int pt: pt_constraints) list_pt_charges += std::to_string(pt) + "\n";
+	ImGui::Text("%s", list_pt_charges.c_str());
+	if (ImGui::Button("Recompute")) {
+
+		solvePotentialOverDirs(f, pt_constraints);
+		solveFieldDifference(f);
+		estimateNormals(f);
+
+		Eigen::VectorXd flipped = scoreNormalEst(f);
+
+		polyscope::PointCloud * pc = polyscope::getPointCloud("Points");
+		pc->addVectorQuantity("Normals, true", f.N);
+		pc->addVectorQuantity("Normals, est.", f.N_est);
+		pc->addScalarQuantity("Flipped", flipped);
+
+		polyscope::PointCloud * tet_pc = polyscope::getPointCloud("Tet. mesh, verts.");
+		Eigen::VectorXi is_point_constrained = Eigen::VectorXi::Zero(f.TV.rows());
+		for (int pt_constrained: pt_constraints) is_point_constrained[pt_constrained] = 1;
+		tet_pc->addScalarQuantity("Constrained pts.", is_point_constrained);
+
+		vis_max(f);
+  	}
+	if (ImGui::Button("Clear selected")) {
+		pt_constraints.clear();
+	}
+
+
 	ImGui::PopItemWidth();
 }
 
@@ -99,7 +150,7 @@ int main(int argc, char **argv) {
 
 	// solve for field over many directions
 
-	solvePotentialOverDirs(f);
+	solvePotentialOverDirs(f, pt_constraints);
 	solveFieldDifference(f);
 	estimateNormals(f);
 
@@ -138,7 +189,6 @@ int main(int argc, char **argv) {
 	tv_vis->addScalarQuantity("Cage", f.is_cage_tv);
 
 	vis_max(f);
-
 
 	polyscope::show();
 

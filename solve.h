@@ -19,14 +19,18 @@ Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func);
 
 Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f);
 
-void solvePotentialOverDirs(struct Faraday &f);
+void solvePotentialOverDirs(struct Faraday &f, std::vector<int> &pt_constraints);
 
 void solveFieldDifference(struct Faraday &f);
 
 void estimateNormals(struct Faraday &f);
 
-Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals);
+Eigen::VectorXd solveBasePotential(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals, std::vector<int> &pt_constraints);
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f);
+Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals, std::vector<int> &pt_constraints);
+
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints);
+
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints);
 
 // Eigen::VectorXd solveDirichletProblem(struct Faraday &f, Eigen::VectorXd &bdry_vals);
