@@ -1,7 +1,5 @@
 #include "solve.h"
 
-#define USE_BILAPLACIAN false
-
 Eigen::MatrixXd potential_dirs = ico_pts;
 
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
@@ -114,10 +112,15 @@ Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f) {
     return sol;
 }
 
-void solvePotentialOverDirs(struct Faraday &f) {
+void solvePotentialOverDirs(struct Faraday &f, bool use_bilaplacian) {
     
 
     std::cout << "Starting solve for potential over all directions." << std::endl;
+    if (use_bilaplacian) {
+        std::cout << "Using Bilaplacian" << std::endl;
+    } else {
+        std::cout << "Using Laplacian" << std::endl;
+    }
     size_t no_fields = potential_dirs.rows();
 
     f.u = Eigen::MatrixXd::Zero(f.TV.rows(), no_fields);
@@ -129,7 +132,7 @@ void solvePotentialOverDirs(struct Faraday &f) {
 
     std::unordered_map<int, int> global_to_matrix_ordering;
     Eigen::SparseMatrix<double> KKT;
-    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f);
+    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f, use_bilaplacian);
 
     std::cout << "Initializing solver, please wait." << std::endl;
     geometrycentral::SquareSolver<double> solver(KKT);
@@ -168,9 +171,15 @@ void solvePotentialOverDirs(struct Faraday &f) {
 
 }
 
-void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constraints) {
+void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian) {
 
     std::cout << "\tSolving for point charge field" << std::endl;
+
+    if (use_bilaplacian) {
+        std::cout << "Using Bilaplacian" << std::endl;
+    } else {
+        std::cout << "Using Laplacian" << std::endl;
+    }
 
     f.u.conservativeResize(f.u.rows(), potential_dirs.rows() + 1);
     f.u_grad.conservativeResize(f.u_grad.rows(), (potential_dirs.rows() * 3) + 3);
@@ -181,7 +190,7 @@ void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constrai
 
     std::unordered_map<int, int> global_to_matrix_ordering_pt_charge;
     Eigen::SparseMatrix<double> KKT_pt_charge;
-    std::tie(global_to_matrix_ordering_pt_charge, KKT_pt_charge) = computeFaraday(f, pt_constraints);
+    std::tie(global_to_matrix_ordering_pt_charge, KKT_pt_charge) = computeFaraday(f, pt_constraints, use_bilaplacian);
 
     std::cout << "Initializing solver, please wait." << std::endl;
     geometrycentral::SquareSolver<double> solver_pt_charge(KKT_pt_charge);
@@ -191,7 +200,7 @@ void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constrai
 
     std::unordered_map<int, int> global_to_matrix_ordering_base;
     Eigen::SparseMatrix<double> KKT_base;
-    std::tie(global_to_matrix_ordering_base, KKT_base) = computeBasePotential(f, pt_constraints);
+    std::tie(global_to_matrix_ordering_base, KKT_base) = computeBasePotential(f, pt_constraints, use_bilaplacian);
 
     std::cout << "Initializing solver, please wait." << std::endl;
     geometrycentral::SquareSolver<double> solver_base(KKT_base);
@@ -219,7 +228,7 @@ void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constrai
     
 }
 
-void solveFieldDifference(struct Faraday &f) {
+void solveMaxFunction(struct Faraday &f) {
 
     /*
 
@@ -238,8 +247,9 @@ void solveFieldDifference(struct Faraday &f) {
 
     for (int i = 0; i < f.u.cols(); i++) {
         std::cout << i << std::endl;
-        Eigen::VectorXd grad_diff_norm = (f.u_grad.middleCols(i * 3, 3) - f.v_theta_grad.middleCols(i * 3, 3)).rowwise().norm();
-        gradmag.col(i) = grad_diff_norm;
+        Eigen::VectorXd grad_norm = (f.u_grad.middleCols(i * 3, 3)).rowwise().norm();
+        // Eigen::VectorXd grad_diff_norm = (f.u_grad.middleCols(i * 3, 3) - f.v_theta_grad.middleCols(i * 3, 3)).rowwise().norm();
+        gradmag.col(i) = grad_norm;
     }
 
     f.max = gradmag.rowwise().maxCoeff();
@@ -296,7 +306,7 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
     return sol;
 }
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f) {
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, bool use_bilaplacian) {
 
     // bdry_vals should be TV.rows() long, but only the entries for boundary vertices will be considered
     /*
@@ -344,7 +354,7 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
     igl::invert_diag(D, D_inv);
 
     Eigen::SparseMatrix<double> L = D_inv * M;
-    if (USE_BILAPLACIAN) L = L * L;
+    if (use_bilaplacian) L = L * L;
 
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
@@ -410,7 +420,7 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
     
 }
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints) {
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian) {
 
     // version for point constraints
 
@@ -454,7 +464,7 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
     igl::invert_diag(D, D_inv);
 
     Eigen::SparseMatrix<double> L = D_inv * M;
-    if (USE_BILAPLACIAN) L = L * L;
+    if (use_bilaplacian) L = L * L;
 
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
@@ -522,7 +532,7 @@ Eigen::VectorXd solveBasePotential(struct Faraday &f, geometrycentral::SquareSol
 
 }
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints) {
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian) {
 
     std::unordered_map<int, int> global_to_matrix_ordering;
     int matrix_count = 0;
@@ -558,7 +568,7 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBas
     igl::invert_diag(D, D_inv);
 
     Eigen::SparseMatrix<double> L = D_inv * M;
-    if (USE_BILAPLACIAN) L = L * L;
+    if (use_bilaplacian) L = L * L;
 
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {

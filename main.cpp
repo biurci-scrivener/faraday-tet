@@ -16,6 +16,8 @@
 
 #include "imgui.h"
 
+bool USE_BILAPLACIAN = false;
+
 struct Faraday f;
 int u_idx = 0;
 int pt_idx = 0;
@@ -58,8 +60,8 @@ void myCallback() {
 	ImGui::Text("%s", list_pt_charges.c_str());
 	if (ImGui::Button("Recompute")) {
 
-		solvePotentialPointCharges(f, pt_constraints);
-		solveFieldDifference(f);
+		solvePotentialPointCharges(f, pt_constraints, USE_BILAPLACIAN);
+		solveMaxFunction(f);
 		estimateNormals(f);
 
 		Eigen::VectorXd flipped = scoreNormalEst(f);
@@ -90,6 +92,9 @@ int main(int argc, char **argv) {
 	args::ArgumentParser parser("3D Faraday cage test project");
 	args::Positional<std::string> inputFilename(parser, "pc", "A point cloud");
 
+	args::Group group(parser);
+	args::Flag bilaplacian(group, "bilaplacian", "Use the Bilaplacian instead of the Laplacian", {"b"});
+
 	// Parse args
 	try {
 	parser.ParseCLI(argc, argv);
@@ -105,6 +110,10 @@ int main(int argc, char **argv) {
 	if (!inputFilename) {
 	std::cerr << "Please specify a mesh file as argument" << std::endl;
 	return EXIT_FAILURE;
+	}
+
+	if (bilaplacian) {
+		USE_BILAPLACIAN = true;
 	}
 
 	std::string filename = args::get(inputFilename);
@@ -151,8 +160,8 @@ int main(int argc, char **argv) {
 
 	// solve for field over many directions
 
-	solvePotentialOverDirs(f);
-	solveFieldDifference(f);
+	solvePotentialOverDirs(f, USE_BILAPLACIAN);
+	solveMaxFunction(f);
 	estimateNormals(f);
 
 	Eigen::VectorXd flipped = scoreNormalEst(f);

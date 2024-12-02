@@ -19,10 +19,10 @@ Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func);
 
 Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f);
 
-void solvePotentialOverDirs(struct Faraday &f);
-void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constraints);
+void solvePotentialOverDirs(struct Faraday &f, bool use_bilaplacian);
+void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian);
 
-void solveFieldDifference(struct Faraday &f);
+void solveMaxFunction(struct Faraday &f);
 
 void estimateNormals(struct Faraday &f);
 
@@ -30,8 +30,8 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
 Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, std::vector<int> &pt_constraints, double const_val);
 Eigen::VectorXd solveBasePotential(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, std::vector<int> &pt_constraints, double const_val);
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f);
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints);
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints);
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, bool use_bilaplacian);
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian);
+std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian);
 
 // Eigen::VectorXd solveDirichletProblem(struct Faraday &f, Eigen::VectorXd &bdry_vals);
