@@ -130,9 +130,7 @@ void solvePotentialOverDirs(struct Faraday &f, bool use_bilaplacian) {
 
     // pre-solve for Faraday effect, linear fields
 
-    std::unordered_map<int, int> global_to_matrix_ordering;
-    Eigen::SparseMatrix<double> KKT;
-    std::tie(global_to_matrix_ordering, KKT) = computeFaraday(f, use_bilaplacian);
+    Eigen::SparseMatrix<double> KKT = computeFaraday(f, use_bilaplacian);
 
     std::cout << "Initializing solver, please wait." << std::endl;
     geometrycentral::SquareSolver<double> solver(KKT);
@@ -149,7 +147,7 @@ void solvePotentialOverDirs(struct Faraday &f, bool use_bilaplacian) {
     */
 
     for (int i = 0; i < potential_dirs.rows(); i++) {
-        std::cout << "\tSolving for directions " << i << std::endl;
+        std::cout << "\tSolving for direction " << i << std::endl;
 
         Eigen::VectorXd boundary_vals(f.TV.rows());
         Eigen::VectorXd dir = potential_dirs.row(i);
@@ -161,7 +159,7 @@ void solvePotentialOverDirs(struct Faraday &f, bool use_bilaplacian) {
         f.v_theta_grad.col(i * 3 + 1) = boundary_vals_grad.col(1);
         f.v_theta_grad.col(i * 3 + 2) = boundary_vals_grad.col(2);
 
-        Eigen::VectorXd res = solveFaraday(f, solver, global_to_matrix_ordering, boundary_vals);
+        Eigen::VectorXd res = solveFaraday(f, solver, boundary_vals);
         f.u.col(i) = res;
         Eigen::MatrixXd res_grad = grad_tv(f, res);
         f.u_grad.col(i * 3) = res_grad.col(0);
@@ -197,6 +195,7 @@ void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constrai
     std::cout << "Initialized solver" << std::endl;
 
     // pre-solve for point charges (no shielding)
+    // you don't actually need this and can remove it later
 
     std::unordered_map<int, int> global_to_matrix_ordering_base;
     Eigen::SparseMatrix<double> KKT_base;
@@ -232,8 +231,8 @@ void solveMaxFunction(struct Faraday &f) {
 
     /*
 
-        Let u, v_theta be the potentials with and without shielding
-        For each field direction, compute |grad_u - grad_v_theta|
+        Let u be the potential with shielding (for a given direction)
+        For each field direction, compute |grad_u|
             (Note: these gradients live on vertices)
 
         Then, take the maximum value (of this norm) across all directions
@@ -280,70 +279,88 @@ void estimateNormals(struct Faraday &f) {
 
 }
 
-Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals) {
+Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, Eigen::VectorXd &bdry_vals) {
 
-    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1;
+    int boundary_count = f.is_bdry_tv.sum();
+    int cage_count = f.is_cage_tv.sum();
+    int interior_count = f.TV.rows() - cage_count - boundary_count;
 
     // build RHS
-    Eigen::VectorXd RHS = Eigen::VectorXd::Zero(f.TV.rows() + constraints_size);
-    for (size_t i = 0; i < f.TV.rows(); i++) {
-        if (f.is_bdry_tv(i)) {
-            int current_idx = global_to_matrix_ordering[i];
-            RHS[f.TV.rows() + current_idx] = bdry_vals[i];
+    Eigen::VectorXd RHS = Eigen::VectorXd::Zero(interior_count + 1);
+    std::cout << "\t\tBuilding RHS" << std::endl;
+
+    for (int k=0; k<f.L.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(f.L,k); it; ++it) {
+
+            // this is just so that I can do an "is_interior" type call
+            // using the interior_count thing from computeFaraday
+            int i = f.global_to_matrix_ordering[it.row()];
+
+            if ((i < interior_count) && (f.is_bdry_tv(it.col()))) {
+                RHS[i] -= it.value() * bdry_vals(it.col());
+            }
+
         }
     }
 
+    std::cout << "\t\tSolving" << std::endl;
     Eigen::VectorXd u = solver.solve(RHS);
-    // if (solver.info() != Eigen::Success) {
-    //     std::cout << "ERROR: Solve failed!" << std::endl;
-    //     exit(-1);
-    // }
+    std::cout << "\t\tSolved" << std::endl;
+
+    // build solution vector
+    // the value for the cage vertices is wrong.
+    // let us fix it disgracefully (or at least figure out what it should be)
 
     Eigen::VectorXd sol = Eigen::VectorXd::Zero(f.TV.rows());
-
-    for (size_t i = 0; i < f.TV.rows(); i++) sol[i] = u[global_to_matrix_ordering[i]];
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        if (f.is_bdry_tv(i)) {
+            sol[i] = bdry_vals[i];
+        } else if (f.is_cage_tv(i)) {
+            sol[i] = u[interior_count];
+        } else {
+            sol[i] = u[f.global_to_matrix_ordering[i]];
+        }
+    }
 
     return sol;
 }
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, bool use_bilaplacian) {
-
-    // bdry_vals should be TV.rows() long, but only the entries for boundary vertices will be considered
-    /*
-        reindex all leaf cells so that they're neatly ordered as follows
-        boundary, cage, interior
-    */ 
+Eigen::SparseMatrix<double> computeFaraday(struct Faraday &f, bool use_bilaplacian) {
 
     std::unordered_map<int, int> global_to_matrix_ordering;
     int matrix_count = 0;
+    int boundary_count = f.is_bdry_tv.sum();
+    int cage_count = f.is_cage_tv.sum();
+    int interior_count = f.TV.rows() - cage_count - boundary_count;
+
     for (size_t i = 0; i < f.TV.rows(); i++) {
-        if (f.is_bdry_tv(i)) {
-            global_to_matrix_ordering.insert({i, matrix_count});
-            matrix_count++;
-        }
-    }
-    for (size_t i = 0; i < f.TV.rows(); i++) {
-        if (f.is_cage_tv(i)) {
-            global_to_matrix_ordering.insert({i, matrix_count});
-            matrix_count++;
-        }
-    }
-    for (size_t i = 0; i < f.TV.rows(); i++) {
+        // "normal" interior vertices
         if ((!f.is_bdry_tv(i)) && (!f.is_cage_tv(i))) {
             global_to_matrix_ordering.insert({i, matrix_count});
             matrix_count++;
         }
     }
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        // boundary vertices
+        if (f.is_bdry_tv(i)) {
+            global_to_matrix_ordering.insert({i, matrix_count});
+            matrix_count++;
+        }
+    }
+    for (size_t i = 0; i < f.TV.rows(); i++) {
+        // cage vertices
+        if (f.is_cage_tv(i)) {
+            global_to_matrix_ordering.insert({i, matrix_count});
+            matrix_count++;
+        }
+    }
+    
     if (matrix_count != f.TV.rows()) {throw std::runtime_error("Not every cell was indexed");}
 
     std::cout << "\tDone reindexing" << std::endl;
 
-    int constraints_size = f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1;
-    Eigen::SparseMatrix<double> KKT(f.TV.rows() + constraints_size, f.TV.rows() + constraints_size);
+    Eigen::SparseMatrix<double> LHS(interior_count + 1, interior_count + 1);
     std::vector<Eigen::Triplet<double>> triplets;
-
-    // build Laplacian 
-    // this is the Laplacian for ALL verts
 
     Eigen::SparseMatrix<double> M;
     Eigen::SparseMatrix<double> D;
@@ -356,35 +373,58 @@ std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFar
     Eigen::SparseMatrix<double> L = D_inv * M;
     if (use_bilaplacian) L = L * L;
 
+    // split Laplacian into parts
+    Eigen::SparseMatrix<double> L_NC(interior_count, interior_count);
+    Eigen::SparseMatrix<double> L_CC(cage_count, cage_count);
+    Eigen::SparseMatrix<double> L_NCC(interior_count, cage_count);
+    Eigen::SparseMatrix<double> L_CNC(cage_count, interior_count);
+    // std::vector<Eigen::Triplet<double>> L_NC_triplets;
+    std::vector<Eigen::Triplet<double>> L_CC_triplets;
+    std::vector<Eigen::Triplet<double>> L_NCC_triplets;
+    std::vector<Eigen::Triplet<double>> L_CNC_triplets;
+
+    int offset = interior_count + boundary_count;
     for (int k=0; k<L.outerSize(); ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
-            triplets.push_back(Eigen::Triplet<double>(global_to_matrix_ordering[it.row()], global_to_matrix_ordering[(it.col())], it.value()));
+            int i = global_to_matrix_ordering[it.row()];
+            int j = global_to_matrix_ordering[it.col()];
+            if ((i < interior_count) && (f.is_cage_tv(it.col()))) {
+                L_NCC_triplets.push_back(Eigen::Triplet<double>(i, j - offset, it.value()));
+            } else if ((j < interior_count) && (f.is_cage_tv(it.row()))) {
+                L_CNC_triplets.push_back(Eigen::Triplet<double>(i - offset, j, it.value()));
+            } else if ((i < interior_count) && (j < interior_count)) {
+                triplets.push_back(Eigen::Triplet<double>(i, j, it.value()));
+            } else if ((f.is_cage_tv(it.row())) && (f.is_cage_tv(it.col()))) {
+                L_CC_triplets.push_back(Eigen::Triplet<double>(i - offset, j - offset, it.value()));
+            }
         }
     }
 
-    std::cout << "\tAdded Laplacian triplets" << std::endl;
+    L_CC.setFromTriplets(L_CC_triplets.begin(), L_CC_triplets.end());
+    L_NCC.setFromTriplets(L_NCC_triplets.begin(), L_NCC_triplets.end());
+    L_CNC.setFromTriplets(L_CNC_triplets.begin(), L_CNC_triplets.end());
 
-    for (int bdry = 0; bdry < f.is_bdry_tv.sum(); bdry++) {
-        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + bdry, bdry, 1.));
-        triplets.push_back(Eigen::Triplet<double>(bdry, f.TV.rows() + bdry, 1.));
-        // std::cout << f.TV.rows() + bdry << " " << bdry << " " << 1. << "\n";
+    Eigen::VectorXd col_r = L_NCC * Eigen::VectorXd::Ones(cage_count);
+    Eigen::VectorXd row_b = Eigen::RowVectorXd::Ones(cage_count) * L_CNC;
+    double val_br = Eigen::RowVectorXd::Ones(cage_count) * L_CC * Eigen::VectorXd::Ones(cage_count);
+    
+    std::cout << "Value is " << val_br << std::endl;
+
+    for (int i = 0; i < interior_count; i++) {
+        triplets.push_back(Eigen::Triplet<double>(interior_count, i, row_b(i)));
+        triplets.push_back(Eigen::Triplet<double>(i, interior_count, col_r(i)));
     }
-    for (int cage = f.is_bdry_tv.sum(); cage < f.is_bdry_tv.sum() + f.is_cage_tv.sum() - 1; cage++) {
-        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + cage, cage, 1.));
-        triplets.push_back(Eigen::Triplet<double>(f.TV.rows() + cage, cage + 1, -1.));
-        triplets.push_back(Eigen::Triplet<double>(cage, f.TV.rows() + cage, 1.));
-        triplets.push_back(Eigen::Triplet<double>(cage + 1, f.TV.rows() + cage, -1.));
-        // std::cout << f.TV.rows() + cage << " " << cage << " " << 1. << "\n";
-        // std::cout << f.TV.rows() + cage << " " << cage + 1 << " " << -1. << "\n";
-    }
+    triplets.push_back(Eigen::Triplet<double>(interior_count, interior_count, val_br));
 
-    std::cout << "\tAdded constraint triplets. About to set KKT matrix" << std::endl;
+    std::cout << "Setting triplets" << std::endl;
 
-    KKT.setFromTriplets(triplets.begin(), triplets.end());
+    LHS.setFromTriplets(triplets.begin(), triplets.end());
 
-    std::cout << "\tSet KKT matrix. Size is " << KKT.rows() << " x " << KKT.cols() << ". Decomposing, this may a take a while..." << std::endl;
+    std::cout << "\tDone" << std::endl;
 
-    return std::make_tuple(global_to_matrix_ordering, KKT);
+    f.global_to_matrix_ordering = global_to_matrix_ordering;
+    f.L = L;
+    return LHS;
 
 }
 

@@ -30,6 +30,9 @@ struct Faraday {
     std::vector<std::vector<int>> my_tets;
 
     // numerical
+    Eigen::SparseMatrix<double> L;
+    std::unordered_map<int, int> global_to_matrix_ordering;
+
     Eigen::SparseMatrix<double> grad;
     Eigen::VectorXd vols;
     Eigen::MatrixXd u;

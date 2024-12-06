@@ -26,11 +26,11 @@ void solveMaxFunction(struct Faraday &f);
 
 void estimateNormals(struct Faraday &f);
 
-Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, Eigen::VectorXd &bdry_vals);
+Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, Eigen::VectorXd &bdry_vals);
 Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, std::vector<int> &pt_constraints, double const_val);
 Eigen::VectorXd solveBasePotential(struct Faraday &f, geometrycentral::SquareSolver<double> &solver, std::unordered_map<int, int> &global_to_matrix_ordering, std::vector<int> &pt_constraints, double const_val);
 
-std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, bool use_bilaplacian);
+Eigen::SparseMatrix<double> computeFaraday(struct Faraday &f, bool use_bilaplacian);
 std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian);
 std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeBasePotential(struct Faraday &f, std::vector<int> &pt_constraints, bool use_bilaplacian);
 
