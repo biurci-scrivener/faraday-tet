@@ -85,7 +85,7 @@ void findTets(struct Faraday &f) {
 
 }
 
-void prepareTetgen(struct Faraday &f) {
+void prepareTetgen(struct Faraday &f, double cr_factor) {
 
     // pre-append corners of bounding box
 
@@ -141,7 +141,9 @@ void prepareTetgen(struct Faraday &f) {
     // ADD CAGE POINTS
     // Icosphere surrounding each interior point
 
-    double CAGE_RADIUS = pad / 20.;
+    double CAGE_RADIUS = pad / cr_factor;
+    std::cout << "Cage radius is " << CAGE_RADIUS << std::endl;
+    std::cout << "\tFactor: " << cr_factor << std::endl;
 
     for (int i = 0; i < f.P.rows(); i++) {
 

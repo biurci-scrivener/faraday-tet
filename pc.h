@@ -22,7 +22,7 @@ void findBdryCage(struct Faraday &f);
 
 void findTets(struct Faraday &f);
 
-void prepareTetgen(struct Faraday &f);
+void prepareTetgen(struct Faraday &f, double cr_factor);
 
 Eigen::VectorXd scoreNormalEst(struct Faraday &f);
 

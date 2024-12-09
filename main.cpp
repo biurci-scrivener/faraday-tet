@@ -18,6 +18,7 @@
 
 bool USE_BILAPLACIAN = false;
 
+double cr_factor = 1.;
 struct Faraday f;
 int u_idx = 0;
 int pt_idx = 0;
@@ -60,7 +61,7 @@ void myCallback() {
 	ImGui::Text("%s", list_pt_charges.c_str());
 	if (ImGui::Button("Recompute")) {
 
-		solvePotentialPointCharges(f, pt_constraints, USE_BILAPLACIAN);
+		solvePotentialPointCharges(f, pt_constraints);
 		solveMaxFunction(f);
 		estimateNormals(f);
 
@@ -91,6 +92,7 @@ int main(int argc, char **argv) {
 	// Configure the argument parser
 	args::ArgumentParser parser("3D Faraday cage test project");
 	args::Positional<std::string> inputFilename(parser, "pc", "A point cloud");
+	args::Positional<double> cageRadius(parser, "rd", "Recip. factor for radius of cages");
 
 	args::Group group(parser);
 	args::Flag bilaplacian(group, "bilaplacian", "Use the Bilaplacian instead of the Laplacian", {"b"});
@@ -112,8 +114,17 @@ int main(int argc, char **argv) {
 	return EXIT_FAILURE;
 	}
 
+	if (cageRadius) {
+		cr_factor = args::get(cageRadius);
+	} else {
+		cr_factor = 20.;
+	}
+
 	if (bilaplacian) {
 		USE_BILAPLACIAN = true;
+		std::cout << "Using Bilaplacian" << std::endl;
+	} else {
+		std::cout << "Using Laplacian" << std::endl;
 	}
 
 	std::string filename = args::get(inputFilename);
@@ -130,7 +141,7 @@ int main(int argc, char **argv) {
 	f.P = P_original;
 	f.N = N_original;
 
-	prepareTetgen(f);
+	prepareTetgen(f, cr_factor);
 
 	std::cout << "Starting tetrahedralization..." << std::endl;
 
@@ -143,9 +154,6 @@ int main(int argc, char **argv) {
 	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a"+ std::to_string(tet_area),
 												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
 
-	// if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "p",
-	// 											f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
-
 	std::cout << "Finished tetrahedralizing" << std::endl;
 	std::cout << "Computing cell barycenters" << std::endl;
 	igl::barycenter(f.TV, f.TT, f.BC);
@@ -153,6 +161,15 @@ int main(int argc, char **argv) {
 	igl::grad(f.TV, f.TT, f.grad);
 	std::cout << "Computing cell volumes" << std::endl;
 	igl::volume(f.TV, f.TT, f.vols);
+	std::cout << "Computing Laplacian" << std::endl;
+	igl::cotmatrix(f.TV, f.TT, f.M);
+	std::cout << "Computing mass matrix" << std::endl;
+	Eigen::SparseMatrix<double> D;
+    igl::massmatrix(f.TV, f.TT, igl::MASSMATRIX_TYPE_BARYCENTRIC, D);
+    igl::invert_diag(D, f.D_inv);
+	std::cout << "Computing weighted Laplacian" << std::endl;
+	f.L = f.D_inv * f.M;
+	if (USE_BILAPLACIAN) f.L = f.L * f.L;
 	std::cout << "Assigning boundary/cage verts." << std::endl;
 	findBdryCage(f);
 	std::cout << "Assigning tets." << std::endl;
@@ -160,7 +177,7 @@ int main(int argc, char **argv) {
 
 	// solve for field over many directions
 
-	solvePotentialOverDirs(f, USE_BILAPLACIAN);
+	solvePotentialOverDirs(f);
 	solveMaxFunction(f);
 	estimateNormals(f);
 
@@ -192,6 +209,10 @@ int main(int argc, char **argv) {
 
 	auto tv_vis = polyscope::registerPointCloud("Tet. mesh, verts.", f.TV);
 	auto bc_vis = polyscope::registerPointCloud("Tet. mesh, cell centers", f.BC);
+	tv_vis->setPointRenderMode(polyscope::PointRenderMode::Quad);
+	tv_vis->setEnabled(false);
+	bc_vis->setPointRenderMode(polyscope::PointRenderMode::Quad);
+	bc_vis->setEnabled(false);
 
 	// call vis. functions
 
