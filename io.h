@@ -5,6 +5,7 @@
 #include <string>
 
 #include <Eigen/Dense>
+#include "faraday.h"
 
 // ChatGPT generated most of this. I have lost my shame
 
@@ -56,4 +57,30 @@ std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> parsePLY(std::string filename) {
     file.close();
 
     return std::make_tuple(V, N);
+}
+
+int saveXYZ(struct Faraday & f, std::string filename) {
+
+    std::ofstream file(filename);
+    
+    if (!file) {
+        std::cerr << "Error writing file" << filename << std::endl;
+        return -1;
+    }
+
+    for (size_t i = 0; i < f.P.rows(); i++) {
+        file << f.P(i, 0) << " "
+                << f.P(i, 1) << " "
+                << f.P(i, 2) << " "
+                << f.N_est(i, 0) << " "
+                << f.N_est(i, 1) << " "
+                << f.N_est(i, 2) << "\n";
+    }
+
+    file.close();
+
+    std::cout << "Wrote output to " << filename << std::endl;
+
+    return 0;
+
 }

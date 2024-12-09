@@ -50,6 +50,17 @@ Eigen::VectorXd scoreNormalEst(struct Faraday &f) {
 
 }
 
+void computeNearestNeighborDists(struct Faraday &f) {
+    f.cage_radii = Eigen::VectorXd::Zero(f.P.rows());
+
+    igl::parallel_for(f.P.rows(), [&](int i)
+        {
+            double r = 0.45 * (f.P.row(f.knn(i,1)) - f.P.row(i)).norm();
+            f.cage_radii(i) = r;
+        }
+    , 100);
+}
+
 void findBdryCage(struct Faraday &f) {
 
     Eigen::VectorXi is_bdry_tv_new = Eigen::VectorXi::Zero(f.TV.rows());
@@ -85,7 +96,7 @@ void findTets(struct Faraday &f) {
 
 }
 
-void prepareTetgen(struct Faraday &f, double cr_factor) {
+void prepareTetgen(struct Faraday &f) {
 
     // pre-append corners of bounding box
 
@@ -141,10 +152,6 @@ void prepareTetgen(struct Faraday &f, double cr_factor) {
     // ADD CAGE POINTS
     // Icosphere surrounding each interior point
 
-    double CAGE_RADIUS = pad / cr_factor;
-    std::cout << "Cage radius is " << CAGE_RADIUS << std::endl;
-    std::cout << "\tFactor: " << cr_factor << std::endl;
-
     for (int i = 0; i < f.P.rows(); i++) {
 
         Eigen::Vector3d pt = f.P.row(i);
@@ -153,7 +160,7 @@ void prepareTetgen(struct Faraday &f, double cr_factor) {
 
         for (int j = 0; j < ico_pts.rows(); j++) {
             Eigen::Vector3d ico_pt = ico_pts.row(j);
-            add_rows.push_back(pt + ico_pt * CAGE_RADIUS);
+            add_rows.push_back(pt + ico_pt * f.cage_radii[i]);
         }
 
         for (int j = 0; j < ico_faces.rows(); j++) {

@@ -24,6 +24,15 @@ struct Faraday {
     Eigen::MatrixXd BC;
     int num_regions;
 
+    // octree & knn stuff
+    std::vector<std::vector<int>> PI;
+    Eigen::MatrixXi CH;
+    Eigen::MatrixXd CN;
+    Eigen::VectorXd W;
+    Eigen::MatrixXi knn;
+
+    Eigen::VectorXd cage_radii;
+
     Eigen::VectorXi is_cage_tv;
     Eigen::VectorXi is_bdry_tv;
 

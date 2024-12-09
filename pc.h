@@ -13,6 +13,7 @@
 #include "polyscope/curve_network.h"
 
 #include <igl/bounding_box.h>
+#include <igl/parallel_for.h>
 
 #include <queue>
 #include <unordered_map>
@@ -22,7 +23,9 @@ void findBdryCage(struct Faraday &f);
 
 void findTets(struct Faraday &f);
 
-void prepareTetgen(struct Faraday &f, double cr_factor);
+void prepareTetgen(struct Faraday &f);
+
+void computeNearestNeighborDists(struct Faraday &f);
 
 Eigen::VectorXd scoreNormalEst(struct Faraday &f);
 

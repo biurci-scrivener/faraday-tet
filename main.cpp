@@ -13,12 +13,17 @@
 #include <igl/barycenter.h>
 #include <igl/copyleft/tetgen/tetrahedralize.h>
 #include <igl/volume.h>
+#include <igl/octree.h>
+#include <igl/knn.h>
 
 #include "imgui.h"
 
 bool USE_BILAPLACIAN = false;
+bool SAVE_OUTFILE = false;
+bool RUN_HEADLESS = false;
+std::string outfile_path = "";
+std::string filename = "";
 
-double cr_factor = 1.;
 struct Faraday f;
 int u_idx = 0;
 int pt_idx = 0;
@@ -91,11 +96,12 @@ int main(int argc, char **argv) {
 
 	// Configure the argument parser
 	args::ArgumentParser parser("3D Faraday cage test project");
-	args::Positional<std::string> inputFilename(parser, "pc", "A point cloud");
-	args::Positional<double> cageRadius(parser, "rd", "Recip. factor for radius of cages");
+	args::Positional<std::string> inputFilename(parser, "pc", "Location of point cloud");
+	args::Positional<std::string> outputFilename(parser, "of", "Location in which to save output");
 
 	args::Group group(parser);
 	args::Flag bilaplacian(group, "bilaplacian", "Use the Bilaplacian instead of the Laplacian", {"b"});
+	args::Flag headless(group, "headless", "Run in headless mode (no Polyscope vis.)", {"h"});
 
 	// Parse args
 	try {
@@ -110,14 +116,17 @@ int main(int argc, char **argv) {
 	}
 
 	if (!inputFilename) {
-	std::cerr << "Please specify a mesh file as argument" << std::endl;
-	return EXIT_FAILURE;
+		std::cerr << "Please specify a mesh file as argument" << std::endl;
+		return EXIT_FAILURE;
+	} else {
+		filename = args::get(inputFilename);
 	}
 
-	if (cageRadius) {
-		cr_factor = args::get(cageRadius);
+	if (!outputFilename) {
+		std::cout << "No output location specified: not saving result." << std::endl;
 	} else {
-		cr_factor = 20.;
+		SAVE_OUTFILE = true;
+		outfile_path = args::get(outputFilename);
 	}
 
 	if (bilaplacian) {
@@ -127,7 +136,10 @@ int main(int argc, char **argv) {
 		std::cout << "Using Laplacian" << std::endl;
 	}
 
-	std::string filename = args::get(inputFilename);
+	if (headless) {
+		RUN_HEADLESS = true;
+		std::cout << "Running in headless mode" << std::endl;
+	}
 
 	Eigen::MatrixXd P_original;
 	Eigen::MatrixXd N_original;
@@ -141,15 +153,18 @@ int main(int argc, char **argv) {
 	f.P = P_original;
 	f.N = N_original;
 
-	prepareTetgen(f, cr_factor);
+	std::cout << "Computing octree" << std::endl;
+	igl::octree(f.P, f.PI, f.CH, f.CN, f.W);
+	std::cout << "Computing KNN" << std::endl;
+	igl::knn(f.P, 2, f.PI, f.CH, f.CN, f.W, f.knn);
+	std::cout << "Computing cage radii" << std::endl;
+	computeNearestNeighborDists(f);
+
+	prepareTetgen(f);
 
 	std::cout << "Starting tetrahedralization..." << std::endl;
 
 	double tet_area = 0.0001 * (f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod();
-
-	std::cout << "Max tet area: " << tet_area << std::endl;
-	std::cout << (f.bb.row(0) - f.bb.row(1)).cwiseAbs() << std::endl;
-	std::cout << (f.bb.row(0) - f.bb.row(1)).cwiseAbs().prod() << std::endl;
 
 	if (igl::copyleft::tetgen::tetrahedralize(	f.V, f.F, f.H, f.VM, f.FM, f.R, "pq1.414a"+ std::to_string(tet_area),
 												f.TV, f.TT, f.TF, f.TM, f.TR, f.TN, f.PT, f.FT, f.num_regions)) exit(-1);
@@ -184,6 +199,15 @@ int main(int argc, char **argv) {
 	estimateNormals(f);
 
 	Eigen::VectorXd flipped = scoreNormalEst(f);
+
+	if (SAVE_OUTFILE) {
+		saveXYZ(f, outfile_path);
+	}
+
+
+	if (RUN_HEADLESS) {
+		exit(0);
+	}
 
 	polyscope::init();
 	polyscope::state::userCallback = myCallback;
