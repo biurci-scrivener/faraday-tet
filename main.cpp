@@ -174,6 +174,8 @@ int main(int argc, char **argv) {
 	findBdryCage(f);
 	std::cout << "Assigning tets." << std::endl;
 	findTets(f);
+	std::cout << "Computing f_to_v matrix" << std::endl;
+	build_f_to_v_matrix(f);
 
 	// solve for field over many directions
 

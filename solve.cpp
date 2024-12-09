@@ -11,16 +11,23 @@ Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func) {
 Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func) {
     Eigen::VectorXd res = f.grad * func;
     Eigen::MatrixXd g_f = Eigen::Map<Eigen::MatrixXd>(res.data(), f.TT.rows(), 3);
-    Eigen::MatrixXd g_tv = Eigen::MatrixXd::Zero(f.TV.rows(), 3);
+    return f.f_to_v * g_f;
+}
+
+void build_f_to_v_matrix(struct Faraday &f) {
+
+    f.f_to_v = Eigen::SparseMatrix<double>(f.TV.rows(), f.TT.rows());
+    std::vector<Eigen::Triplet<double>> triplets;
     for (size_t i = 0; i < f.TV.rows(); i++) {
-        double w_sum = 0.;
+        double w_sum = 0;
         for (int tet: f.my_tets[i]) {
-            g_tv.row(i) += g_f.row(tet) * f.vols[tet];
             w_sum += f.vols[tet];
         }
-        if (f.my_tets[i].size() > 0) g_tv.row(i) /= w_sum;
+        for (int tet: f.my_tets[i]) {
+            triplets.push_back(Eigen::Triplet<double>(i, tet, f.vols[tet] / w_sum));
+        }
     }
-    return g_tv;
+    f.f_to_v.setFromTriplets(triplets.begin(), triplets.end());
 }
 
 Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f) {

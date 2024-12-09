@@ -36,6 +36,7 @@ struct Faraday {
     std::unordered_map<int, int> global_to_matrix_ordering;
 
     Eigen::SparseMatrix<double> grad;
+    Eigen::SparseMatrix<double> f_to_v; // turns a function on faces (tets.) into a function on verts.
     Eigen::VectorXd vols;
     Eigen::MatrixXd u;
     Eigen::MatrixXd u_grad;

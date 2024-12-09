@@ -17,6 +17,8 @@ Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func);
 
 Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func);
 
+void build_f_to_v_matrix(struct Faraday &f);
+
 Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f);
 
 void solvePotentialOverDirs(struct Faraday &f);
