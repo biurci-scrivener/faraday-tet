@@ -18,12 +18,13 @@ void vis_u(struct Faraday f, int idx) {
 void vis_max(struct Faraday f) {
 
     polyscope::VolumeMesh * tet_mesh = polyscope::getVolumeMesh("Tet. mesh");
-    auto u = tet_mesh->addVertexScalarQuantity("max_{theta} ||grad{v_theta} - grad{u_theta}||",  f.max);
+    auto u = tet_mesh->addVertexScalarQuantity("max_{theta} ||grad{u_theta}||",  f.max);
+    tet_mesh->addVertexScalarQuantity("Variance of max.", f.max_var);
     u->setEnabled(true);
 
 
     polyscope::PointCloud * tet_pc = polyscope::getPointCloud("Tet. mesh, verts.");
-    tet_pc->addScalarQuantity("max_{theta} ||grad{v_theta} - grad{u_theta}||", f.max);
+    tet_pc->addScalarQuantity("max_{theta} ||grad{u_theta}||", f.max);
     tet_pc->addVectorQuantity("Grad. of max.", f.max_grad);
     tet_pc->addVectorQuantity("Grad. of max., normalized", f.max_grad_normalized);
 

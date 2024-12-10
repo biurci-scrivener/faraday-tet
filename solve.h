@@ -9,8 +9,6 @@
 #include <igl/massmatrix.h>
 #include <igl/invert_diag.h>
 
-#include "gurobi_c++.h"
-
 #include "geometrycentral/numerical/linear_solvers.h"
 
 Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func);
@@ -18,8 +16,6 @@ Eigen::MatrixXd grad_tets(struct Faraday &f, Eigen::VectorXd &func);
 Eigen::MatrixXd grad_tv(struct Faraday &f, Eigen::VectorXd &func);
 
 void build_f_to_v_matrix(struct Faraday &f);
-
-Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f);
 
 void solvePotentialOverDirs(struct Faraday &f);
 void solvePotentialPointCharges(struct Faraday &f, std::vector<int> &pt_constraints);
@@ -33,5 +29,3 @@ Eigen::VectorXd solveFaraday(struct Faraday &f, geometrycentral::SquareSolver<do
 
 Eigen::SparseMatrix<double> computeFaraday(struct Faraday &f);
 std::tuple<std::unordered_map<int, int>, Eigen::SparseMatrix<double>> computeFaraday(struct Faraday &f, std::vector<int> &pt_constraints);
-
-// Eigen::VectorXd solveDirichletProblem(struct Faraday &f, Eigen::VectorXd &bdry_vals);

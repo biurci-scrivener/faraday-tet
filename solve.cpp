@@ -30,95 +30,6 @@ void build_f_to_v_matrix(struct Faraday &f) {
     f.f_to_v.setFromTriplets(triplets.begin(), triplets.end());
 }
 
-Eigen::VectorXd solvePotentialOverDirs_Gurobi(struct Faraday &f) {
-
-    Eigen::SparseMatrix<double> M;
-    Eigen::SparseMatrix<double> D;
-    Eigen::SparseMatrix<double> D_inv;
-
-    std::cout << "Building Laclacian" << std::endl;
-    igl::cotmatrix(f.TV, f.TT, M);
-    std::cout << "\tDone" << std::endl;
-    std::cout << "Building mass matrix" << std::endl;
-    igl::massmatrix(f.TV, f.TT, igl::MASSMATRIX_TYPE_BARYCENTRIC, D);
-    std::cout << "\tDone" << std::endl;
-    igl::invert_diag(D, D_inv);
-
-    Eigen::SparseMatrix<double> L = D_inv * M;
-
-    // generate potential in absence of shielding
-
-    Eigen::VectorXd boundary_vals(f.TV.rows());
-    Eigen::VectorXd dir = potential_dirs.row(0);
-    for (int j = 0; j < f.TV.rows(); j++) boundary_vals[j] = f.TV.row(j).dot(dir);
-
-    Eigen::VectorXd sol = Eigen::VectorXd::Zero(f.TV.rows());
-
-    try {
-        GRBEnv env = GRBEnv();
-
-        GRBModel model = GRBModel(env);
-
-        // Create variables
-
-        std::cout << "Creating decision variables" << std::endl;
-        
-        std::vector<GRBVar> u;
-        for (size_t i = 0; i < f.TV.rows(); i++) {
-            u.push_back(model.addVar(-GRB_INFINITY, GRB_INFINITY, 0.0, GRB_CONTINUOUS));
-        }
-
-        // Add constraints
-
-        std::cout << "Adding constraints" << std::endl;
-
-        for (size_t i = 0; i < f.TV.rows(); i++) {
-            if (f.is_bdry_tv(i)) {
-                model.addConstr(u[i] == boundary_vals[i]);
-                std::cout << "Added boundary constraint: " << i << std::endl;
-            } else if (f.is_cage_tv(i)) {
-                size_t next_cage = i + 1;
-                while ((next_cage < f.TV.rows()) && (!f.is_cage_tv(next_cage))) next_cage++;
-                if (next_cage != f.TV.rows()) {
-                    model.addConstr(u[i] == u[next_cage]);
-                    std::cout << "Added cage constraint: " << i << " " << next_cage << std::endl;
-                }
-            }
-        }
-        
-
-        // Set objective
-
-        std::cout << "Setting objective" << std::endl;
-
-        GRBQuadExpr obj = 0.0;
-
-        for (int k=0; k<L.outerSize(); ++k) {
-            for (Eigen::SparseMatrix<double>::InnerIterator it(L,k); it; ++it) {
-                obj += 0.5 * it.value() * u[it.row()] * u[it.col()];
-            }
-        }
-        
-        model.setObjective(obj, GRB_MINIMIZE);
-
-        model.optimize();
-
-        for (size_t i = 0; i < f.TV.rows(); i++) {
-            sol[i] = u[i].get(GRB_DoubleAttr_X);
-        }
-
-    } catch(GRBException e) {
-        std::cout << "Error code = " << e.getErrorCode() << std::endl;
-        std::cout << e.getMessage() << std::endl;
-        exit(-1);
-    } catch(...) {
-        std::cout << "Exception during optimization" << std::endl;
-        exit(-1);
-    }
-    
-    return sol;
-}
-
 void solvePotentialOverDirs(struct Faraday &f) {
     
 
@@ -242,15 +153,24 @@ void solveMaxFunction(struct Faraday &f) {
 
     Eigen::MatrixXd gradmag = Eigen::MatrixXd::Zero(f.TV.rows(), f.u.cols());
     f.max = Eigen::VectorXd::Zero(f.TV.rows());
+    f.max_var = Eigen::VectorXd::Zero(f.TV.rows());
     f.max_grad = Eigen::MatrixXd::Zero(f.TV.rows(), 3);
 
     for (int i = 0; i < f.u.cols(); i++) {
         Eigen::VectorXd grad_norm = (f.u_grad.middleCols(i * 3, 3)).rowwise().norm();
-        // Eigen::VectorXd grad_diff_norm = (f.u_grad.middleCols(i * 3, 3) - f.v_theta_grad.middleCols(i * 3, 3)).rowwise().norm();
         gradmag.col(i) = grad_norm;
     }
 
     f.max = gradmag.rowwise().maxCoeff();
+    // compute variance
+    Eigen::VectorXd max_mean = gradmag.rowwise().mean();
+    f.max_var = Eigen::VectorXd::Zero(f.TV.rows());
+    for (int i = 0; i < gradmag.cols(); i++) {
+        // check this, i think it's wrong
+        Eigen::VectorXd diff = (gradmag.col(i) - max_mean).array().pow(2) / ((double)gradmag.cols() - 1);
+        f.max_var += diff;
+    }
+
     f.max_grad = grad_tv(f, f.max);
     f.max_grad_normalized = f.max_grad.rowwise().normalized();
 

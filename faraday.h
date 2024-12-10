@@ -53,6 +53,7 @@ struct Faraday {
     Eigen::MatrixXd v_theta_grad;
     Eigen::VectorXd max;
     Eigen::MatrixXd max_grad;
+    Eigen::VectorXd max_var;
     Eigen::MatrixXd max_grad_normalized;
 
     Eigen::MatrixXd N_est;

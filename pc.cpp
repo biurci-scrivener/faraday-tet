@@ -30,20 +30,25 @@ template <typename T> std::vector<T> reorder_vector(const std::vector<T> &vals, 
 
 Eigen::VectorXd scoreNormalEst(struct Faraday &f) {
 
-    double sum_dot = 0;
-    size_t sum_disagree = 0;
     Eigen::VectorXd flipped = Eigen::VectorXd::Zero(f.N.rows());
-    for (size_t i = 0; i < f.N.rows(); i++) {
-        double dp = f.N.row(i).dot(f.N_est.row(i));
-        sum_dot += dp;
-        sum_disagree += dp < 0;
-        flipped[i] = dp < 0;
-    }
+    Eigen::VectorXd angle_disagree = Eigen::VectorXd::Zero(f.N.rows());
+
+    igl::parallel_for(f.N.rows(), [&](int i)
+        {
+            double dp = f.N.row(i).dot(f.N_est.row(i));
+            angle_disagree[i] = acos(dp) * (180 / M_PI);
+            flipped[i] = dp < 0;
+        }
+    , 100);
+
+    double ad_mean = angle_disagree.sum() / f.N.rows();
+    double ad_std_dev = sqrt((angle_disagree - Eigen::VectorXd::Constant(f.N.rows(), ad_mean)).array().pow(2).sum() / f.N.rows());
 
     std::cout << std::endl;
-    std::cout << "Total number flipped: " << sum_disagree << std::endl;
-    std::cout << "Percent agree: " << ((double)(f.N.rows() - sum_disagree)) / f.N.rows() << std::endl;
-    std::cout << "Avg. dot product: " << sum_dot / f.N.rows() << std::endl;
+    std::cout << "Total number flipped: " << flipped.sum() << std::endl;
+    std::cout << "Percent agree: " << (((double)(f.N.rows() - flipped.sum())) / f.N.rows()) * 100 << "%" << std::endl;
+    std::cout << "Angle defect, mean (deg.): " << ad_mean << std::endl;
+    std::cout << "Angle defect, std. dev (deg.): " << ad_std_dev << std::endl;
     std::cout << std::endl;
 
     return flipped;
